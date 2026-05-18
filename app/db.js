@@ -10,7 +10,18 @@ let db = null;
 
 export function initDB() {
   return new Promise((resolve, reject) => {
-    if (db) { resolve(db); return; }
+    // Verificar que la conexión existente sigue viva
+    if (db) {
+      try {
+        // Probar que la conexión no está cerrada
+        db.transaction('medicamentos', 'readonly').abort();
+        resolve(db);
+        return;
+      } catch {
+        // Conexión inválida — resetear y abrir de nuevo
+        db = null;
+      }
+    }
 
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -41,10 +52,20 @@ export function initDB() {
 
     req.onsuccess = (e) => {
       db = e.target.result;
+      // Manejar cierre inesperado de la DB
+      db.onclose = () => { db = null; };
+      db.onerror = (event) => console.error('DB error:', event.target.error);
       resolve(db);
     };
 
     req.onerror = () => reject(req.error);
+
+    // Manejar bloqueo por otras tabs con la DB abierta
+    req.onblocked = () => {
+      console.warn('IndexedDB bloqueada — recargando...');
+      // Forzar recarga para limpiar estado
+      setTimeout(() => location.reload(), 500);
+    };
   });
 }
 
