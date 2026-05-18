@@ -23,6 +23,15 @@ export function initDB() {
       }
     }
 
+    // Timeout de seguridad: si IndexedDB no responde en 8s, recargar
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        console.warn('IndexedDB no responde tras 8s — recargando...');
+        location.reload();
+      }
+    }, 8000);
+
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
     req.onupgradeneeded = (e) => {
@@ -51,6 +60,8 @@ export function initDB() {
     };
 
     req.onsuccess = (e) => {
+      resolved = true;
+      clearTimeout(timeout);
       db = e.target.result;
       // Manejar cierre inesperado de la DB
       db.onclose = () => { db = null; };
@@ -58,11 +69,17 @@ export function initDB() {
       resolve(db);
     };
 
-    req.onerror = () => reject(req.error);
+    req.onerror = () => {
+      resolved = true;
+      clearTimeout(timeout);
+      reject(req.error);
+    };
 
     // Manejar bloqueo por otras tabs con la DB abierta
     req.onblocked = () => {
       console.warn('IndexedDB bloqueada — recargando...');
+      resolved = true;
+      clearTimeout(timeout);
       // Forzar recarga para limpiar estado
       setTimeout(() => location.reload(), 500);
     };
