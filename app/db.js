@@ -164,21 +164,107 @@ export function getAllRegistros() {
   });
 }
 
-// ===== DATOS DE EJEMPLO para primera vez =====
+// Borrar TODOS los datos (para reinstalar datos reales)
+export function clearAllData() {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['medicamentos', 'tomas', 'registros'], 'readwrite');
+    tx.objectStore('medicamentos').clear();
+    tx.objectStore('tomas').clear();
+    tx.objectStore('registros').clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// ===== DATOS REALES — Trasplante de pulmón =====
+// Medicamentos del paciente según cuaderno de la madre (mayo 2026)
 
 export async function seedDemoData() {
   const meds = await getMedicamentos();
   if (meds.length > 0) return; // Ya tiene datos
 
+  // Índices: 0-Tacrolimus, 1-CellCept, 2-Prednisona, 3-Calcio, 4-Magnogene, 5-Amlodipino, 6-Bisoprolol, 7-Omeprazol, 8-Linezolid, 9-Tramadol
   const medicamentos = [
-    { nombre: 'Tacrolimus', dosis: '1 mg', categoria: 'Inmunosupresor', indicaciones: 'Con agua, en ayunas', color: '#4fc3f7', notas: 'Inmunosupresor principal tras trasplante' },
-    { nombre: 'Prednisona', dosis: '5 mg', categoria: 'Corticoide', indicaciones: 'Con comida', color: '#f59e0b', notas: 'Antiinflamatorio corticoide' },
-    { nombre: 'Micofenolato', dosis: '500 mg', categoria: 'Inmunosupresor', indicaciones: 'Con o sin comida', color: '#a78bfa', notas: 'Inmunosupresor secundario' },
-    { nombre: 'Omeprazol', dosis: '20 mg', categoria: 'Protector gástrico', indicaciones: 'En ayunas, 30min antes de comer', color: '#34d399', notas: 'Protector del estómago' },
-    { nombre: 'Cotrimoxazol', dosis: '400 mg', categoria: 'Antibiótico profiláctico', indicaciones: 'Con agua', color: '#fb7185', notas: 'Prevención de infecciones' },
-    { nombre: 'Valganciclovir', dosis: '450 mg', categoria: 'Antiviral', indicaciones: 'Con comida', color: '#fb923c', notas: 'Prevención de CMV' },
-    { nombre: 'Amlodipino', dosis: '5 mg', categoria: 'Antihipertensivo', indicaciones: 'A cualquier hora', color: '#60a5fa', notas: 'Control de tensión arterial' },
-    { nombre: 'Calcio + Vit D', dosis: '500 mg', categoria: 'Suplemento', indicaciones: 'Con comida', color: '#fbbf24', notas: 'Suplemento óseo' },
+    {
+      nombre: 'Tacrolimus (Prograf)',
+      dosis: '6 mg',
+      categoria: 'Inmunosupresor',
+      indicaciones: 'En AYUNAS. Tomar y esperar 1 hora antes de desayunar. Siempre a la misma hora.',
+      color: '#4fc3f7',
+      notas: 'Inmunosupresor principal tras trasplante de pulmón. Evita el rechazo del pulmón trasplantado. Dosis exacta: 5 mg + 1 mg. NO tomar con zumo de pomelo. Niveles en sangre muy importantes — no faltar tomas.'
+    },
+    {
+      nombre: 'CellCept (Micofenolato)',
+      dosis: '1000 mg',
+      categoria: 'Inmunosupresor',
+      indicaciones: 'Con o sin comida. Tomar junto con Tacrolimus (misma hora).',
+      color: '#a78bfa',
+      notas: 'Inmunosupresor secundario. Tomar 2 comprimidos de 500 mg = 1000 mg. Junto con Tacrolimus forma el doble escudo anti-rechazo del trasplante.'
+    },
+    {
+      nombre: 'Prednisona',
+      dosis: '40 mg',
+      categoria: 'Corticoide',
+      indicaciones: 'Con el desayuno (con comida, nunca en ayunas). Por la mañana.',
+      color: '#f59e0b',
+      notas: 'Corticoide antiinflamatorio e inmunosupresor. Reduce la inflamación y evita el rechazo del trasplante. La dosis de 40 mg es alta — ir bajando con el tiempo según médico.'
+    },
+    {
+      nombre: 'Calcio Mastical D',
+      dosis: '1250 mg',
+      categoria: 'Suplemento',
+      indicaciones: 'Con comida (desayuno y cena). Masticar o disolver, no tragar entero.',
+      color: '#fbbf24',
+      notas: 'Suplemento de calcio con vitamina D. Protege los huesos frente a la osteoporosis causada por los corticoides (Prednisona) y la inmovilidad postoperatoria. Tomarlo con comida para mejor absorción.'
+    },
+    {
+      nombre: 'Magnogene (Magnesio)',
+      dosis: '53 mg',
+      categoria: 'Suplemento',
+      indicaciones: 'Con comida (desayuno y cena).',
+      color: '#34d399',
+      notas: 'Suplemento de magnesio. Compensa la pérdida de magnesio producida por el Tacrolimus (efecto secundario frecuente). El magnesio es esencial para el músculo cardíaco y los nervios.'
+    },
+    {
+      nombre: 'Amlodipino',
+      dosis: '5 mg',
+      categoria: 'Antihipertensivo',
+      indicaciones: 'Con comida (desayuno y cena).',
+      color: '#60a5fa',
+      notas: 'Bloqueante de los canales de calcio. Controla la tensión arterial elevada, un efecto secundario muy habitual del Tacrolimus. Ayuda también al corazón en el período postoperatorio.'
+    },
+    {
+      nombre: 'Bisoprolol',
+      dosis: '2,5 mg',
+      categoria: 'Antihipertensivo',
+      indicaciones: 'Con comida (desayuno y cena).',
+      color: '#818cf8',
+      notas: 'Betabloqueante. Reduce la frecuencia cardíaca y la tensión arterial. Protege el corazón durante la recuperación del trasplante. No dejar de tomarlo de golpe.'
+    },
+    {
+      nombre: 'Omeprazol',
+      dosis: '20 mg',
+      categoria: 'Protector gástrico',
+      indicaciones: 'Con el desayuno (por la mañana, antes o durante). También con cena si se prescribe.',
+      color: '#10b981',
+      notas: 'Protector gástrico. Protege el estómago de las úlceras y la acidez causadas por la Prednisona (corticoide). Obligatorio mientras se tomen corticoides.'
+    },
+    {
+      nombre: 'Linezolid',
+      dosis: '600 mg',
+      categoria: 'Antibiótico profiláctico',
+      indicaciones: 'Con o sin comida. Cada 12 horas (mañana y noche). Medicación temporal hospitalaria.',
+      color: '#fb7185',
+      notas: 'Antibiótico para infecciones bacterianas resistentes. Medicación temporal del período postoperatorio. Duración según indicación médica. NO tomar con alimentos ricos en tiramina (embutidos curados, quesos añejos, vino tinto).'
+    },
+    {
+      nombre: 'Tramadol',
+      dosis: '50 mg',
+      categoria: 'Otro',
+      indicaciones: 'Con o sin comida. Solo si hay dolor. Medicación temporal hospitalaria.',
+      color: '#f97316',
+      notas: 'Analgésico opioide para el dolor postoperatorio. Medicación temporal del período postoperatorio. No conducir ni manejar maquinaria. Puede producir mareo o somnolencia.'
+    },
   ];
 
   const ids = [];
@@ -187,11 +273,25 @@ export async function seedDemoData() {
     ids.push(id);
   }
 
-  // Tomas: 08:00, 16:00, 00:00 (medianoche)
+  // Horarios reales según cuaderno de la madre
+  // Índices: 0-Tacrolimus, 1-CellCept, 2-Prednisona, 3-Calcio, 4-Magnogene, 5-Amlodipino, 6-Bisoprolol, 7-Omeprazol, 8-Linezolid, 9-Tramadol
   const horarios = [
-    { hora: '08:00', meds: [0,1,2,3,4,5,6,7] },
-    { hora: '16:00', meds: [0,2,3,5] },
-    { hora: '00:00', meds: [0,1,2,4,6] },
+    {
+      hora: '07:00',
+      meds: [0, 1], // Tacrolimus + CellCept en AYUNAS (esperar 1h antes de desayunar)
+    },
+    {
+      hora: '08:00',
+      meds: [2, 3, 4, 5, 6, 7, 8], // Desayuno: Prednisona + Calcio + Magnesio + Amlodipino + Bisoprolol + Omeprazol + Linezolid
+    },
+    {
+      hora: '19:00',
+      meds: [0, 1], // Tacrolimus + CellCept en AYUNAS (esperar 1h antes de cenar)
+    },
+    {
+      hora: '21:00',
+      meds: [3, 4, 5, 6, 7, 8], // Cena: Calcio + Magnesio + Amlodipino + Bisoprolol + Omeprazol + Linezolid
+    },
   ];
 
   for (const h of horarios) {

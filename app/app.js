@@ -3,7 +3,7 @@
  */
 
 import {
-  initDB, seedDemoData,
+  initDB, seedDemoData, clearAllData,
   getMedicamentos, addMedicamento, updateMedicamento, deleteMedicamento,
   getTomas, addToma, deleteToma,
   getRegistrosByFecha, addRegistro, deleteRegistro, getAllRegistros
@@ -467,6 +467,20 @@ async function renderPaginaPastillas() {
     `;
   }
 
+  // Botón para restablecer si hay datos viejos de demo
+  html += `
+    <div class="content" style="padding-top:0">
+      <button onclick="restablecerDatosReales()" style="
+        width:100%; padding:12px 16px; margin-top:8px;
+        background:var(--bg3); border:1.5px dashed var(--border);
+        border-radius:12px; color:var(--text2); font-size:13px;
+        cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px
+      ">
+        🔄 Restablecer medicamentos originales del trasplante
+      </button>
+    </div>
+  `;
+
   html += `</div>`; // content
 
   // FAB
@@ -474,6 +488,16 @@ async function renderPaginaPastillas() {
 
   page.innerHTML = html;
 }
+
+// Restablecer datos reales (borrar todo y volver a cargar los medicamentos del padre)
+window.restablecerDatosReales = async function() {
+  if (!confirm('⚠️ ¿Restablecer todos los medicamentos a la configuración original del trasplante?\n\nEsto borrará todos los cambios manuales y el historial de tomas.')) return;
+  await clearAllData();
+  await seedDemoData();
+  await cargarDatos();
+  await renderPaginaPastillas();
+  mostrarToast('✅ Medicamentos restablecidos a la configuración original');
+};
 
 // ===== PÁGINA ALARMAS =====
 async function renderPaginaAlarmas() {
