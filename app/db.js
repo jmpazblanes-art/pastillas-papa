@@ -3,7 +3,7 @@
  * Sin dependencias externas, funciona offline, datos del paciente nunca salen del dispositivo
  */
 
-const DB_NAME = 'pastillas-papa';
+const DB_NAME = 'pastillas-papa-v2';
 const DB_VERSION = 1;
 
 let db = null;
