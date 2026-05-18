@@ -48,7 +48,14 @@ export function initDB() {
   });
 }
 
+async function getStoreAsync(name, mode = 'readonly') {
+  if (!db) await initDB();
+  const tx = db.transaction(name, mode);
+  return tx.objectStore(name);
+}
+
 function getStore(name, mode = 'readonly') {
+  if (!db) throw new Error('DB no inicializada — llama initDB() primero');
   const tx = db.transaction(name, mode);
   return tx.objectStore(name);
 }
