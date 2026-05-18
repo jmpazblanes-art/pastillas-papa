@@ -51,14 +51,18 @@ export function formatearHora12(hora) {
 
 export function emojiToma(hora) {
   const h = parseInt(hora.split(':')[0]);
-  if (h < 12) return '🌅';
-  if (h < 18) return '☀️';
-  if (h < 22) return '🌆';
+  if (h === 0) return '🌙';   // medianoche
+  if (h < 6)  return '🌙';   // madrugada
+  if (h < 12) return '🌅';   // mañana
+  if (h < 18) return '☀️';   // tarde
+  if (h < 22) return '🌆';   // noche
   return '🌙';
 }
 
 export function etiquetaToma(hora) {
   const h = parseInt(hora.split(':')[0]);
+  if (h === 0) return 'Medianoche';
+  if (h < 6)  return 'Madrugada';
   if (h < 12) return 'Mañana';
   if (h < 14) return 'Mediodía';
   if (h < 18) return 'Tarde';

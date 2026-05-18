@@ -528,17 +528,28 @@ async function renderPaginaAlarmas() {
   for (const hora of horasOrdenadas) {
     const items = grupos[hora];
     const activas = items.filter(t => t.activa);
-    const nombres = activas.map(t => t.med.nombre).slice(0, 3).join(', ');
-    const extra = activas.length > 3 ? ` +${activas.length - 3} más` : '';
+    const todosIds = items.map(t => t.id);
+    const nombres = items.map(t => t.med.nombre).join(', ');
+    const extra = items.length > 3 ? ` +${items.length - 3} más` : '';
+    const nombresCortos = items.map(t => t.med.nombre).slice(0, 3).join(', ');
 
     html += `
-      <div class="alarma-card">
-        <div class="alarma-hora">${hora}</div>
-        <div class="alarma-info">
-          <div class="alarma-meds">${nombres}${extra || ''}</div>
-          <div class="alarma-count">${activas.length} pastilla${activas.length !== 1 ? 's' : ''} · ${etiquetaToma(hora)}</div>
+      <div class="alarma-card alarma-card-editable">
+        <div class="alarma-top">
+          <div class="alarma-hora-wrap">
+            <input type="time" class="alarma-time-input" value="${hora}"
+              data-hora-original="${hora}"
+              onchange="cambiarHoraSlot('${hora}', this.value, this)">
+          </div>
+          <div class="alarma-info">
+            <div class="alarma-meds">${nombresCortos}${extra ? ` +${items.length - 3} más` : ''}</div>
+            <div class="alarma-count">${items.length} pastilla${items.length !== 1 ? 's' : ''} · ${etiquetaToma(hora)}</div>
+          </div>
+          <div class="toggle ${activas.length > 0 ? 'on' : ''}" onclick="toggleHora('${hora}')"></div>
         </div>
-        <div class="toggle ${activas.length > 0 ? 'on' : ''}" onclick="toggleHora('${hora}')"></div>
+        <div class="alarma-meds-list">
+          ${items.map(t => `<span class="alarma-med-chip" style="background:${colorCategoria(t.med.categoria)}22;color:${colorCategoria(t.med.categoria)}">${iconoCategoria(t.med.categoria)} ${t.med.nombre}</span>`).join('')}
+        </div>
       </div>
     `;
   }
@@ -546,6 +557,27 @@ async function renderPaginaAlarmas() {
   html += `</div>`;
   page.innerHTML = html;
 }
+
+window.cambiarHoraSlot = async function(horaOriginal, horaNueva, inputEl) {
+  if (!horaNueva || horaNueva === horaOriginal) return;
+  // Verificar que no exista ya ese slot
+  const yaExiste = state.tomas.some(t => t.hora === horaNueva && t.hora !== horaOriginal);
+  if (yaExiste) {
+    mostrarToast('⚠️ Ya hay un horario a esa hora');
+    inputEl.value = horaOriginal;
+    return;
+  }
+  // Actualizar todas las tomas de ese slot
+  const tomasSlot = state.tomas.filter(t => t.hora === horaOriginal);
+  for (const toma of tomasSlot) {
+    await deleteToma(toma.id);
+    await addToma({ medicamento_id: toma.medicamento_id, hora: horaNueva, activa: toma.activa });
+  }
+  mostrarToast(`⏰ Horario cambiado a ${horaNueva}`);
+  await cargarDatos();
+  await renderPaginaAlarmas();
+  await programarAlarmasHoy(state.tomas, state.medicamentos);
+};
 
 window.toggleHora = async function(hora) {
   const tomasDeHora = state.tomas.filter(t => t.hora === hora);

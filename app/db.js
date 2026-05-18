@@ -187,11 +187,11 @@ export async function seedDemoData() {
     ids.push(id);
   }
 
-  // Tomas: 08:00, 16:00, 24:00
+  // Tomas: 08:00, 16:00, 00:00 (medianoche)
   const horarios = [
     { hora: '08:00', meds: [0,1,2,3,4,5,6,7] },
     { hora: '16:00', meds: [0,2,3,5] },
-    { hora: '24:00', meds: [0,1,2,4,6] },
+    { hora: '00:00', meds: [0,1,2,4,6] },
   ];
 
   for (const h of horarios) {

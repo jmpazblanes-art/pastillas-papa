@@ -393,10 +393,52 @@ body {
   align-items: center;
   gap: 14px;
 }
+.alarma-card-editable {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.alarma-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.alarma-hora-wrap {
+  min-width: 64px;
+}
+.alarma-time-input {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--primary);
+  background: var(--bg3);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  width: 100%;
+  cursor: pointer;
+  text-align: center;
+}
+.alarma-time-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
 .alarma-hora   { font-size: 22px; font-weight: 800; color: var(--text); min-width: 64px; }
 .alarma-info   { flex: 1; }
 .alarma-meds   { font-size: 13px; color: var(--text2); }
 .alarma-count  { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.alarma-meds-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+.alarma-med-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
 .toggle {
   width: 50px; height: 28px;
   border-radius: 14px;
