@@ -4,7 +4,7 @@
  * y hace la app instalable como PWA offline
  */
 
-const CACHE_NAME = 'pastillas-papa-v1';
+const CACHE_NAME = 'pastillas-papa-v2';
 const ASSETS = [
   '/',
   '/index.html',
