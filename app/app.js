@@ -5,7 +5,7 @@
 import {
   initDB, seedDemoData, clearAllData,
   getMedicamentos, addMedicamento, updateMedicamento, deleteMedicamento,
-  getTomas, addToma, deleteToma,
+  getTomas, addToma, updateToma, deleteToma,
   getRegistrosByFecha, addRegistro, deleteRegistro, getAllRegistros
 } from './db.js';
 
@@ -606,11 +606,12 @@ window.cambiarHoraSlot = async function(horaOriginal, horaNueva, inputEl) {
 window.toggleHora = async function(hora) {
   const tomasDeHora = state.tomas.filter(t => t.hora === hora);
   const activas = tomasDeHora.filter(t => t.activa);
-  const nuevaActiva = activas.length === 0;
-  // Toggle: si todas están activas, desactivar; si no, activar
-  // Como no tenemos campo activa editable fácil, simplemente reprogramamos alarmas
-  // En una v2 añadiríamos activar/desactivar por hora
+  const nuevaActiva = activas.length === 0; // si ninguna activa → activar; si hay activas → desactivar
+  for (const toma of tomasDeHora) {
+    await updateToma({ ...toma, activa: nuevaActiva });
+  }
   mostrarToast(nuevaActiva ? '🔔 Toma activada' : '🔕 Toma desactivada');
+  await cargarDatos();
   await renderPaginaAlarmas();
 };
 

@@ -163,6 +163,14 @@ export function addToma(toma) {
   });
 }
 
+export function updateToma(toma) {
+  return new Promise((resolve, reject) => {
+    const req = getStore('tomas', 'readwrite').put(toma);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export function deleteToma(id) {
   return new Promise((resolve, reject) => {
     const req = getStore('tomas', 'readwrite').delete(id);
