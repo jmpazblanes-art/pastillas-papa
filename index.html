@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Pastillas">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="description" content="Control de medicación diaria">
+
+  <title>PastillasPapa 💊</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Icono apple -->
+  <link rel="apple-touch-icon" href="app/icons/icon-192.png">
+
+  <link rel="stylesheet" href="app/styles.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- PÁGINAS -->
+  <section class="page active" id="page-hoy">
+    <!-- Renderizado por JS -->
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100dvh">
+      <div style="text-align:center;color:#4b5563">
+        <div style="font-size:48px;margin-bottom:12px">💊</div>
+        <div style="font-size:16px;font-weight:600">Cargando...</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="page-historial"></section>
+  <section class="page" id="page-pastillas"></section>
+  <section class="page" id="page-alarmas"></section>
+
+  <!-- NAVEGACIÓN INFERIOR -->
+  <nav class="bottom-nav" id="bottom-nav"></nav>
+
+  <!-- MODAL -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div id="modal-content"></div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast" id="toast"></div>
+
+</div>
+
+<script type="module" src="app/app.js"></script>
+</body>
+</html>
