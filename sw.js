@@ -4,56 +4,44 @@
  * y hace la app instalable como PWA offline
  */
 
-const CACHE_NAME = 'pastillas-papa-v2';
-const ASSETS = [
-  '/',
-  '/index.html',
+const CACHE_NAME = 'pastillas-papa-v3';
+
+// Solo cacheamos recursos estáticos que NO cambian con el código
+const STATIC_ASSETS = [
   '/app/styles.css',
-  '/app/app.js',
-  '/app/db.js',
-  '/app/alarmas.js',
-  '/app/utils.js',
   '/manifest.json',
   '/app/icons/icon-192.svg',
   '/app/icons/icon-512.svg',
 ];
 
-// Instalación — cachear todos los assets
+// Instalación — solo cachear CSS e iconos
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
+    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
   );
   self.skipWaiting();
 });
 
-// Activación — limpiar caches viejas
+// Activación — limpiar caches viejas y tomar control inmediato
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch — network-first para JS (siempre código actualizado), cache-first para resto
+// Fetch — JS y HTML siempre desde red; CSS/iconos desde cache
 self.addEventListener('fetch', event => {
   const url = event.request.url;
-  const isJS = url.endsWith('.js');
+  const isJS = url.includes('/app/') && url.endsWith('.js');
+  const isHTML = url.endsWith('/') || url.endsWith('.html');
 
-  if (isJS) {
-    // JS: red primero, fallback cache
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          return response;
-        })
-        .catch(() => caches.match(event.request))
-    );
+  if (isJS || isHTML) {
+    // Código: siempre desde red (nunca desde cache)
+    event.respondWith(fetch(event.request));
   } else {
-    // Resto: cache primero, fallback red
+    // Recursos estáticos: cache primero, fallback red
     event.respondWith(
       caches.match(event.request).then(cached => cached || fetch(event.request))
     );
