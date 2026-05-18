@@ -36,11 +36,28 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch — servir desde cache, fallback a red
+// Fetch — network-first para JS (siempre código actualizado), cache-first para resto
 self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request))
-  );
+  const url = event.request.url;
+  const isJS = url.endsWith('.js');
+
+  if (isJS) {
+    // JS: red primero, fallback cache
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+  } else {
+    // Resto: cache primero, fallback red
+    event.respondWith(
+      caches.match(event.request).then(cached => cached || fetch(event.request))
+    );
+  }
 });
 
 // Push notification — recibida desde servidor (para futuras integraciones)
