@@ -98,7 +98,7 @@ export async function programarAlarmasHoy(tomas, medicamentos) {
   }
 }
 
-function mostrarNotificacion(titulo, cuerpo, hora) {
+export function mostrarNotificacion(titulo, cuerpo, hora) {
   if (!tienePermiso()) return;
 
   const n = new Notification(titulo, {

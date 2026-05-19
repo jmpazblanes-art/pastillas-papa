@@ -11,7 +11,8 @@ import {
 
 import {
   pedirPermisoNotificaciones, tienePermiso,
-  registrarServiceWorker, programarAlarmasHoy, proximaToma, reproducirSonidoAlarma
+  registrarServiceWorker, programarAlarmasHoy, proximaToma, reproducirSonidoAlarma,
+  mostrarNotificacion
 } from './alarmas.js';
 
 import {
@@ -535,11 +536,25 @@ async function renderPaginaAlarmas() {
       </div>
     `;
   } else {
+    // Detectar si está instalada como PWA (standalone) o abierta en Safari
+    const esPWA = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
     html += `
-      <div style="background:var(--success-dim);border:1px solid var(--success);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px">
+      <div style="background:var(--success-dim);border:1px solid var(--success);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px">
         <span style="font-size:20px">✅</span>
         <p style="font-size:13px;color:var(--success);font-weight:600">Alarmas activadas — recibirás notificaciones</p>
       </div>
+      <button onclick="probarNotificacion()" style="width:100%;padding:12px;margin-bottom:${esPWA ? '12' : '8'}px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+        🔔 Probar notificación ahora
+      </button>
+      ${!esPWA ? `
+      <div style="background:#2a1f00;border:1px solid #f59e0b55;border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px">
+        <span style="font-size:18px;flex-shrink:0">📱</span>
+        <p style="font-size:12px;color:#f59e0b;line-height:1.5">
+          <strong>Para que las alarmas suenen cuando el iPhone esté bloqueado:</strong><br>
+          Abre esta web en Safari → toca el botón compartir (□↑) → "Añadir a pantalla de inicio"
+        </p>
+      </div>
+      ` : ''}
     `;
   }
 
@@ -613,6 +628,35 @@ window.toggleHora = async function(hora) {
   mostrarToast(nuevaActiva ? '🔔 Toma activada' : '🔕 Toma desactivada');
   await cargarDatos();
   await renderPaginaAlarmas();
+};
+
+window.probarNotificacion = async function() {
+  if (!tienePermiso()) {
+    mostrarToast('Sin permiso de notificaciones');
+    return;
+  }
+  // Intentar via Service Worker (más fiable en iOS)
+  let enviado = false;
+  if ('serviceWorker' in navigator) {
+    const swReg = await navigator.serviceWorker.ready.catch(() => null);
+    if (swReg && swReg.active) {
+      swReg.active.postMessage({
+        type: 'PROGRAMAR_ALARMA',
+        hora: 'prueba',
+        titulo: '💊 ¡Las alarmas funcionan!',
+        cuerpo: 'Esta es una notificación de prueba de PastillasPapa',
+        delayMs: 1000,
+      });
+      enviado = true;
+    }
+  }
+  // Fallback directo si no hay SW
+  if (!enviado) {
+    setTimeout(() => {
+      mostrarNotificacion('💊 ¡Las alarmas funcionan!', 'Esta es una notificación de prueba de PastillasPapa', 'prueba');
+    }, 1000);
+  }
+  mostrarToast('🔔 Notificación enviada — llegará en 1 segundo');
 };
 
 // ===== MODAL MEDICAMENTO =====
