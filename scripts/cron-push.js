@@ -66,7 +66,8 @@ function horasEnVentana(ventanaMinutos = WINDOW_MINUTES) {
 
 async function enviarPush(subscription, alarma) {
   webpush.setVapidDetails(VAPID_EMAIL, requireEnv('VAPID_PUBLIC_KEY'), requireEnv('VAPID_PRIVATE_KEY'));
-  return webpush.sendNotification(
+  const endpointHost = subscription?.endpoint ? new URL(subscription.endpoint).host : 'endpoint-desconocido';
+  const response = await webpush.sendNotification(
     subscription,
     JSON.stringify({
       titulo: alarma.titulo,
@@ -76,6 +77,7 @@ async function enviarPush(subscription, alarma) {
     }),
     { TTL: 3600, urgency: 'high' }
   );
+  return { endpointHost, statusCode: response.statusCode };
 }
 
 async function main() {
@@ -137,7 +139,12 @@ async function main() {
     );
 
     for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'fulfilled') {
+        console.log(`Push aceptado por ${results[i].value.endpointHost} con estado ${results[i].value.statusCode || 'OK'}`);
+      }
+
       if (results[i].status === 'rejected') {
+        console.warn(`Error push ${snap.docs[i].id}:`, results[i].reason?.statusCode || results[i].reason?.message || results[i].reason);
         totalEliminados += 1;
         await snap.docs[i].ref.delete();
       }

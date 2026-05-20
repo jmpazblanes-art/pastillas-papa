@@ -12,7 +12,8 @@ import {
 import {
   pedirPermisoNotificaciones, tienePermiso,
   registrarServiceWorker, programarAlarmasHoy, proximaToma, reproducirSonidoAlarma,
-  mostrarNotificacion, iniciarFCM, probarPushFCM, sincronizarHorariosServidor
+  mostrarNotificacion, iniciarFCM, probarPushFCM, sincronizarHorariosServidor,
+  resetearWebPush, diagnosticoWebPush
 } from './alarmas.js';
 // firebase.js eliminado — usamos Web Push estándar sin Firebase
 
@@ -562,6 +563,9 @@ async function renderPaginaAlarmas() {
       <button onclick="probarNotificacion()" style="width:100%;padding:12px;margin-bottom:${esPWA ? '12' : '8'}px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
         🔔 Probar notificación ahora
       </button>
+      <button onclick="repararNotificaciones()" style="width:100%;padding:12px;margin-bottom:12px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+        🔧 Reparar notificaciones de este iPhone
+      </button>
       ${!esPWA ? `
       <div style="background:#2a1f00;border:1px solid #f59e0b55;border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px">
         <span style="font-size:18px;flex-shrink:0">📱</span>
@@ -687,6 +691,25 @@ window.probarNotificacion = async function() {
     }, 1000);
   }
   mostrarToast('🔔 Notificación local — cierra la app para probar FCM');
+};
+
+window.repararNotificaciones = async function() {
+  if (!tienePermiso()) {
+    mostrarToast('Activa primero las notificaciones');
+    return;
+  }
+
+  mostrarToast('Reparando registro del iPhone...');
+  const suscripcion = await resetearWebPush();
+  if (!suscripcion) {
+    mostrarToast('No se pudo reparar el registro');
+    return;
+  }
+
+  const estado = await diagnosticoWebPush();
+  const detalle = estado.endpoint ? ` (${estado.endpoint})` : '';
+  mostrarToast(`iPhone registrado de nuevo${detalle}`);
+  setTimeout(() => probarNotificacion(), 700);
 };
 
 // ===== MODAL MEDICAMENTO =====

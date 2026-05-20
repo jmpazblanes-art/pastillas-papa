@@ -79,6 +79,48 @@ export async function suscribirWebPush() {
   }
 }
 
+export async function resetearWebPush() {
+  if (!tienePermiso()) return null;
+  if (!('PushManager' in window)) return null;
+
+  try {
+    const swReg = await navigator.serviceWorker.ready;
+    const suscripcionExistente = await swReg.pushManager.getSubscription();
+    if (suscripcionExistente) {
+      await suscripcionExistente.unsubscribe().catch(() => {});
+    }
+    localStorage.removeItem('push_subscription');
+    return await suscribirWebPush();
+  } catch (e) {
+    console.warn('Error al reparar Web Push:', e);
+    return null;
+  }
+}
+
+export async function diagnosticoWebPush() {
+  const estado = {
+    permiso: 'Notification' in window ? Notification.permission : 'no disponible',
+    pwa: window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches,
+    serviceWorker: 'serviceWorker' in navigator,
+    pushManager: 'PushManager' in window,
+    suscripcion: false,
+    endpoint: '',
+  };
+
+  if (!estado.serviceWorker || !estado.pushManager) return estado;
+
+  try {
+    const swReg = await navigator.serviceWorker.ready;
+    const sub = await swReg.pushManager.getSubscription();
+    estado.suscripcion = Boolean(sub);
+    estado.endpoint = sub?.endpoint ? new URL(sub.endpoint).host : '';
+  } catch (e) {
+    estado.error = e.message || String(e);
+  }
+
+  return estado;
+}
+
 // Mandar push de prueba desde el servidor
 export async function probarPushFCM() {
   const subStr = localStorage.getItem('push_subscription');

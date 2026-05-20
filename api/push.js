@@ -61,7 +61,8 @@ function horasEnVentana(ventanaMinutos = 5) {
 
 async function enviarPush(subscription, titulo, cuerpo, tag = null) {
   webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
-  return webpush.sendNotification(
+  const endpointHost = subscription?.endpoint ? new URL(subscription.endpoint).host : 'endpoint-desconocido';
+  const response = await webpush.sendNotification(
     subscription,
     JSON.stringify({
       titulo,
@@ -71,6 +72,8 @@ async function enviarPush(subscription, titulo, cuerpo, tag = null) {
     }),
     { TTL: 3600, urgency: 'high' }
   );
+  console.log(`Push aceptado por ${endpointHost} con estado ${response.statusCode || 'OK'}`);
+  return response;
 }
 
 export default async function handler(req, res) {
