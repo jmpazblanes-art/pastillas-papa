@@ -2,9 +2,39 @@
  * PastillasPapa — Service Worker
  * Permite notificaciones push reales en iOS (Safari 16.4+)
  * y hace la app instalable como PWA offline
+ *
+ * v4: Firebase Cloud Messaging para push aunque la app esté cerrada
  */
 
-const CACHE_NAME = 'pastillas-papa-v3';
+// Importar Firebase Messaging SW (necesario para FCM en background)
+importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: "AIzaSyAmz2TWKM3nBkADiqLDpvCazL1KfOm8AAU",
+  authDomain: "pastillas-papa.firebaseapp.com",
+  projectId: "pastillas-papa",
+  storageBucket: "pastillas-papa.firebasestorage.app",
+  messagingSenderId: "507224087875",
+  appId: "1:507224087875:web:40d810b8ce8b2a5caae3f6",
+});
+
+const messaging = firebase.messaging();
+
+// Manejar mensajes FCM en background (app cerrada o en segundo plano)
+messaging.onBackgroundMessage((payload) => {
+  const { title, body } = payload.notification || {};
+  return self.registration.showNotification(title || '💊 Hora de las pastillas', {
+    body: body || 'Es hora de tomar la medicación',
+    icon: '/app/icons/icon-192.svg',
+    badge: '/app/icons/icon-72.svg',
+    tag: 'pastillas-fcm',
+    requireInteraction: true,
+    vibrate: [200, 100, 200, 100, 200],
+  });
+});
+
+const CACHE_NAME = 'pastillas-papa-v4';
 
 // Solo cacheamos recursos estáticos que NO cambian con el código
 const STATIC_ASSETS = [

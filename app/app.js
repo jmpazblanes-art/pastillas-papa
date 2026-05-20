@@ -12,7 +12,7 @@ import {
 import {
   pedirPermisoNotificaciones, tienePermiso,
   registrarServiceWorker, programarAlarmasHoy, proximaToma, reproducirSonidoAlarma,
-  mostrarNotificacion
+  mostrarNotificacion, iniciarFCM, probarPushFCM
 } from './alarmas.js';
 
 import {
@@ -39,6 +39,7 @@ async function init() {
   await cargarDatos();
   await registrarServiceWorker(); // Service Worker para iOS
   await pedirPermisoNotificaciones();
+  iniciarFCM(); // Firebase Cloud Messaging — push aunque app esté cerrada
   renderNav();
   renderPaginaHoy();
   actualizarClock();
@@ -635,7 +636,14 @@ window.probarNotificacion = async function() {
     mostrarToast('Sin permiso de notificaciones');
     return;
   }
-  // Intentar via Service Worker (más fiable en iOS)
+  mostrarToast('🔔 Enviando prueba...');
+  // Intentar via FCM (llega aunque la app esté cerrada)
+  const okFCM = await probarPushFCM();
+  if (okFCM) {
+    mostrarToast('✅ Push enviado — llegará en segundos aunque cierres la app');
+    return;
+  }
+  // Fallback: SW local (solo funciona con app abierta)
   let enviado = false;
   if ('serviceWorker' in navigator) {
     const swReg = await navigator.serviceWorker.ready.catch(() => null);
@@ -650,13 +658,12 @@ window.probarNotificacion = async function() {
       enviado = true;
     }
   }
-  // Fallback directo si no hay SW
   if (!enviado) {
     setTimeout(() => {
-      mostrarNotificacion('💊 ¡Las alarmas funcionan!', 'Esta es una notificación de prueba de PastillasPapa', 'prueba');
+      mostrarNotificacion('💊 ¡Las alarmas funcionan!', 'Esta es una notificación de prueba', 'prueba');
     }, 1000);
   }
-  mostrarToast('🔔 Notificación enviada — llegará en 1 segundo');
+  mostrarToast('🔔 Notificación local — cierra la app para probar FCM');
 };
 
 // ===== MODAL MEDICAMENTO =====

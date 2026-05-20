@@ -1,7 +1,57 @@
 /**
  * PastillasPapa — Sistema de Alarmas
- * Usa la Notifications API del navegador + ServiceWorker para alarmas fiables
+ * v2: Firebase Cloud Messaging para push reales en iOS aunque la app esté cerrada
  */
+
+import { initFirebase, obtenerTokenFCM, escucharMensajesFCM } from './firebase.js';
+
+// Registrar token FCM en el servidor para recibir push
+async function registrarTokenEnServidor(token) {
+  try {
+    // Guardamos el token en localStorage — el servidor lo lee via env var
+    // En una versión más completa iría a Firestore
+    const tokenGuardado = localStorage.getItem('fcm_token_registrado');
+    if (tokenGuardado === token) return; // Ya registrado
+    localStorage.setItem('fcm_token_registrado', token);
+    console.log('Token FCM registrado:', token.substring(0, 20) + '...');
+  } catch (e) {
+    console.warn('No se pudo registrar token:', e);
+  }
+}
+
+export async function iniciarFCM() {
+  try {
+    initFirebase();
+    const token = await obtenerTokenFCM();
+    if (token) {
+      await registrarTokenEnServidor(token);
+      // Escuchar mensajes cuando la app está en primer plano
+      escucharMensajesFCM((payload) => {
+        const { title, body } = payload.notification || {};
+        mostrarNotificacion(title || '💊 Pastillas', body || '', 'fcm');
+      });
+    }
+    return token;
+  } catch (e) {
+    console.warn('FCM no disponible, usando alarmas locales:', e.message);
+    return null;
+  }
+}
+
+export async function probarPushFCM() {
+  const token = localStorage.getItem('fcm_token');
+  if (!token) return false;
+  try {
+    const res = await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'send_test', token }),
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
 
 export async function pedirPermisoNotificaciones() {
   if (!('Notification' in window)) return false;
