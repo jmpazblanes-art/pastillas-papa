@@ -137,7 +137,7 @@ async function main() {
   }
 
   console.log(`Hora España: ${ahora}`);
-  console.log(`Ventana revisada: ${horasEnVentana().join(', ')}`);
+  console.log(`Minuto revisado: ${horasEnVentana().join(', ')}`);
   console.log(`Modo: ${FIXED_ONLY ? '4 alarmas fijas' : 'horarios sincronizados desde app'}`);
   console.log(`Alarmas candidatas: ${alarmasAEnviar.length}`);
 
