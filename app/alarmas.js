@@ -45,11 +45,12 @@ export async function suscribirWebPush() {
     if (suscripcionExistente) {
       localStorage.setItem('push_subscription', JSON.stringify(suscripcionExistente));
       // Siempre re-registrar en Firestore por si se perdió
-      await fetch('/api/push', {
+      const res = await fetch('/api/push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'subscribe', subscription: suscripcionExistente }),
-      }).catch(() => {});
+      });
+      if (!res.ok) throw new Error(`Servidor push respondió ${res.status}`);
       return suscripcionExistente;
     }
 
@@ -62,11 +63,12 @@ export async function suscribirWebPush() {
     localStorage.setItem('push_subscription', JSON.stringify(suscripcion));
 
     // Registrar en el servidor (para que Vercel pueda mandarle push)
-    await fetch('/api/push', {
+    const res = await fetch('/api/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'subscribe', subscription: suscripcion }),
-    }).catch(() => {}); // No crítico si falla
+    });
+    if (!res.ok) throw new Error(`Servidor push respondió ${res.status}`);
 
     console.log('Web Push suscrito ✅');
     return suscripcion;

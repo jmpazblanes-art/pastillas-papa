@@ -343,8 +343,20 @@ window.marcarTomaCompleta = async function(hora, yaCompleta) {
 
 window.solicitarPermisos = async function() {
   const ok = await pedirPermisoNotificaciones();
-  if (ok) mostrarToast('🔔 Alarmas activadas');
-  else mostrarToast('Sin permiso — actívalo en ajustes');
+  if (!ok) {
+    mostrarToast('Sin permiso — actívalo en ajustes');
+    await cargarDatos();
+    renderPaginaHoy();
+    return;
+  }
+
+  const suscripcion = await iniciarFCM();
+  if (suscripcion) {
+    mostrarToast('🔔 Alarmas activadas y registradas');
+  } else {
+    mostrarToast('Permiso OK, pero falta registrar el iPhone');
+  }
+
   await cargarDatos();
   renderPaginaHoy();
 };
@@ -641,6 +653,13 @@ window.probarNotificacion = async function() {
     return;
   }
   mostrarToast('🔔 Enviando prueba...');
+
+  const suscripcion = await iniciarFCM();
+  if (!suscripcion) {
+    mostrarToast('No se pudo registrar este iPhone en el servidor');
+    return;
+  }
+
   // Intentar via FCM (llega aunque la app esté cerrada)
   const okFCM = await probarPushFCM();
   if (okFCM) {
