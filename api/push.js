@@ -59,12 +59,17 @@ function horasEnVentana(ventanaMinutos = 5) {
   return [...new Set(horas)]; // sin duplicados
 }
 
-async function enviarPush(subscription, titulo, cuerpo) {
+async function enviarPush(subscription, titulo, cuerpo, tag = null) {
   webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
   return webpush.sendNotification(
     subscription,
-    JSON.stringify({ titulo, cuerpo }),
-    { TTL: 3600 }
+    JSON.stringify({
+      titulo,
+      cuerpo,
+      tag: tag || `pastillas-push-${Date.now()}`,
+      timestamp: Date.now(),
+    }),
+    { TTL: 3600, urgency: 'high' }
   );
 }
 
@@ -127,7 +132,12 @@ export default async function handler(req, res) {
 
     for (const alarma of alarmasAEnviar) {
       const results = await Promise.allSettled(
-        snap.docs.map(doc => enviarPush(doc.data().subscription, alarma.titulo, alarma.cuerpo))
+        snap.docs.map(doc => enviarPush(
+          doc.data().subscription,
+          alarma.titulo,
+          alarma.cuerpo,
+          alarma.claveDisparo ? `pastillas-${alarma.claveDisparo}` : null
+        ))
       );
 
       // Limpiar suscripciones caducadas
@@ -197,7 +207,12 @@ export default async function handler(req, res) {
       const disparadasUpdate = {};
       for (const alarma of alarmasAEnviar) {
         const results = await Promise.allSettled(
-          snap.docs.map(doc => enviarPush(doc.data().subscription, alarma.titulo, alarma.cuerpo))
+          snap.docs.map(doc => enviarPush(
+            doc.data().subscription,
+            alarma.titulo,
+            alarma.cuerpo,
+            alarma.claveDisparo ? `pastillas-${alarma.claveDisparo}` : null
+          ))
         );
         for (let i = 0; i < results.length; i++) {
           if (results[i].status === 'rejected') await snap.docs[i].ref.delete();

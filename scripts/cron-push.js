@@ -64,12 +64,17 @@ function horasEnVentana(ventanaMinutos = WINDOW_MINUTES) {
   return [...new Set(horas)];
 }
 
-async function enviarPush(subscription, titulo, cuerpo) {
+async function enviarPush(subscription, alarma) {
   webpush.setVapidDetails(VAPID_EMAIL, requireEnv('VAPID_PUBLIC_KEY'), requireEnv('VAPID_PRIVATE_KEY'));
   return webpush.sendNotification(
     subscription,
-    JSON.stringify({ titulo, cuerpo }),
-    { TTL: 3600 }
+    JSON.stringify({
+      titulo: alarma.titulo,
+      cuerpo: alarma.cuerpo,
+      tag: alarma.claveDisparo ? `pastillas-${alarma.claveDisparo}` : `pastillas-test-${Date.now()}`,
+      timestamp: Date.now(),
+    }),
+    { TTL: 3600, urgency: 'high' }
   );
 }
 
@@ -90,7 +95,7 @@ async function main() {
   if (FORCE_TEST) {
     alarmasAEnviar.push({
       titulo: '💊 Prueba de alarma',
-      cuerpo: 'Prueba manual enviada desde GitHub Actions',
+      cuerpo: `Prueba manual enviada desde GitHub Actions a las ${ahora}`,
       claveDisparo: null,
     });
   } else {
@@ -128,7 +133,7 @@ async function main() {
 
   for (const alarma of alarmasAEnviar) {
     const results = await Promise.allSettled(
-      snap.docs.map((doc) => enviarPush(doc.data().subscription, alarma.titulo, alarma.cuerpo))
+      snap.docs.map((doc) => enviarPush(doc.data().subscription, alarma))
     );
 
     for (let i = 0; i < results.length; i++) {
