@@ -189,5 +189,44 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
 }
 
+/**
+ * Sincronizar los horarios reales del usuario al servidor (Firestore)
+ * para que el cron sepa a qué horas mandar push aunque cambie los horarios.
+ * tomas: array de { hora, activa }
+ * medicamentos: array de { id, nombre }
+ */
+export async function sincronizarHorariosServidor(tomas, medicamentos) {
+  if (!tienePermiso()) return;
+  try {
+    // Agrupar tomas activas por hora
+    const grupos = {};
+    for (const toma of tomas) {
+      if (!toma.activa) continue;
+      if (!grupos[toma.hora]) grupos[toma.hora] = [];
+      const med = medicamentos.find(m => m.id === toma.medicamento_id);
+      if (med) grupos[toma.hora].push(med.nombre);
+    }
+
+    // Construir objeto horarios para el servidor
+    const horarios = {};
+    for (const [hora, nombres] of Object.entries(grupos)) {
+      horarios[hora] = {
+        titulo: '💊 Hora de las pastillas',
+        cuerpo: nombres.join(', '),
+      };
+    }
+
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'sync-horarios', horarios }),
+    }).catch(() => {});
+
+    console.log('Horarios sincronizados con el servidor:', Object.keys(horarios));
+  } catch (e) {
+    console.warn('Error al sincronizar horarios:', e);
+  }
+}
+
 // Alias para compatibilidad
 export const iniciarFCM = suscribirWebPush;

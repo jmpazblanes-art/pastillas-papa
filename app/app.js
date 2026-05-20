@@ -12,7 +12,7 @@ import {
 import {
   pedirPermisoNotificaciones, tienePermiso,
   registrarServiceWorker, programarAlarmasHoy, proximaToma, reproducirSonidoAlarma,
-  mostrarNotificacion, iniciarFCM, probarPushFCM
+  mostrarNotificacion, iniciarFCM, probarPushFCM, sincronizarHorariosServidor
 } from './alarmas.js';
 // firebase.js eliminado — usamos Web Push estándar sin Firebase
 
@@ -59,6 +59,8 @@ async function cargarDatos() {
   state.tomas = await getTomas();
   state.registros = await getRegistrosByFecha(state.fechaActual);
   programarAlarmasHoy(state.tomas, state.medicamentos);
+  // Sincronizar horarios reales al servidor para que el cron funcione con app cerrada
+  sincronizarHorariosServidor(state.tomas, state.medicamentos);
 }
 
 // ===== NAVEGACIÓN =====
@@ -618,6 +620,7 @@ window.cambiarHoraSlot = async function(horaOriginal, horaNueva, inputEl) {
   await cargarDatos();
   await renderPaginaAlarmas();
   await programarAlarmasHoy(state.tomas, state.medicamentos);
+  sincronizarHorariosServidor(state.tomas, state.medicamentos);
 };
 
 window.toggleHora = async function(hora) {
