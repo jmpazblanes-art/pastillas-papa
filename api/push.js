@@ -11,6 +11,7 @@
 import webpush from 'web-push';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { randomUUID } from 'crypto';
 
 const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
@@ -62,6 +63,7 @@ function horasEnVentana(ventanaMinutos = 5) {
 async function enviarPush(subscription, titulo, cuerpo, tag = null) {
   webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
   const endpointHost = subscription?.endpoint ? new URL(subscription.endpoint).host : 'endpoint-desconocido';
+  const deliveryId = randomUUID();
   const response = await webpush.sendNotification(
     subscription,
     JSON.stringify({
@@ -69,11 +71,12 @@ async function enviarPush(subscription, titulo, cuerpo, tag = null) {
       cuerpo,
       tag: tag || `pastillas-push-${Date.now()}`,
       timestamp: Date.now(),
+      deliveryId,
     }),
     { TTL: 3600, urgency: 'high' }
   );
-  console.log(`Push aceptado por ${endpointHost} con estado ${response.statusCode || 'OK'}`);
-  return response;
+  console.log(`Push aceptado por ${endpointHost} con estado ${response.statusCode || 'OK'} (${deliveryId})`);
+  return { response, deliveryId };
 }
 
 export default async function handler(req, res) {
@@ -170,6 +173,20 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const { action, subscription } = req.body || {};
 
+    if (action === 'delivery-log') {
+      const { deliveryId, tag, timestamp } = req.body || {};
+      if (!deliveryId) return res.status(400).json({ error: 'deliveryId requerido' });
+      const db = getDB();
+      await db.collection('delivery_logs').doc(deliveryId).set({
+        deliveryId,
+        tag: tag || '',
+        clientTimestamp: timestamp || Date.now(),
+        receivedAt: Date.now(),
+        userAgent: req.headers['user-agent'] || '',
+      });
+      return res.status(200).json({ ok: true });
+    }
+
     // Guardar suscripción en Firestore
     if (action === 'subscribe') {
       if (!subscription) return res.status(400).json({ error: 'Suscripción requerida' });
@@ -246,8 +263,8 @@ export default async function handler(req, res) {
     if (action === 'test') {
       if (!subscription) return res.status(400).json({ error: 'Suscripción requerida' });
       try {
-        await enviarPush(subscription, '💊 ¡Las alarmas funcionan!', 'Esta notificación llegó aunque la app estuviera cerrada ✅');
-        return res.status(200).json({ ok: true });
+        const result = await enviarPush(subscription, '💊 ¡Las alarmas funcionan!', 'Esta notificación llegó aunque la app estuviera cerrada ✅');
+        return res.status(200).json({ ok: true, deliveryId: result.deliveryId });
       } catch (e) {
         return res.status(500).json({ error: e.message });
       }

@@ -1,6 +1,7 @@
 import webpush from 'web-push';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { randomUUID } from 'crypto';
 
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
@@ -67,6 +68,7 @@ function horasEnVentana(ventanaMinutos = WINDOW_MINUTES) {
 async function enviarPush(subscription, alarma) {
   webpush.setVapidDetails(VAPID_EMAIL, requireEnv('VAPID_PUBLIC_KEY'), requireEnv('VAPID_PRIVATE_KEY'));
   const endpointHost = subscription?.endpoint ? new URL(subscription.endpoint).host : 'endpoint-desconocido';
+  const deliveryId = randomUUID();
   const response = await webpush.sendNotification(
     subscription,
     JSON.stringify({
@@ -74,10 +76,31 @@ async function enviarPush(subscription, alarma) {
       cuerpo: alarma.cuerpo,
       tag: alarma.claveDisparo ? `pastillas-${alarma.claveDisparo}` : `pastillas-test-${Date.now()}`,
       timestamp: Date.now(),
+      deliveryId,
     }),
     { TTL: 3600, urgency: 'high' }
   );
-  return { endpointHost, statusCode: response.statusCode };
+  return { deliveryId, endpointHost, statusCode: response.statusCode };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function comprobarRecepciones(db, deliveryIds) {
+  if (deliveryIds.length === 0) return;
+
+  await sleep(12000);
+
+  for (const deliveryId of deliveryIds) {
+    const doc = await db.collection('delivery_logs').doc(deliveryId).get();
+    if (doc.exists) {
+      const data = doc.data();
+      console.log(`iPhone confirmó recepción: ${deliveryId} (${data?.tag || 'sin-tag'})`);
+    } else {
+      console.warn(`Sin confirmación del iPhone para: ${deliveryId}`);
+    }
+  }
 }
 
 async function main() {
@@ -131,6 +154,7 @@ async function main() {
 
   let totalEnviados = 0;
   let totalEliminados = 0;
+  const deliveryIds = [];
   const disparadasUpdate = {};
 
   for (const alarma of alarmasAEnviar) {
@@ -141,6 +165,7 @@ async function main() {
     for (let i = 0; i < results.length; i++) {
       if (results[i].status === 'fulfilled') {
         console.log(`Push aceptado por ${results[i].value.endpointHost} con estado ${results[i].value.statusCode || 'OK'}`);
+        deliveryIds.push(results[i].value.deliveryId);
       }
 
       if (results[i].status === 'rejected') {
@@ -163,6 +188,7 @@ async function main() {
 
   console.log(`Push enviados: ${totalEnviados}`);
   console.log(`Suscripciones caducadas eliminadas: ${totalEliminados}`);
+  await comprobarRecepciones(db, deliveryIds);
 }
 
 main().catch((error) => {
