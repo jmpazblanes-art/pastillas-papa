@@ -1,10 +1,10 @@
 /**
- * PastillasPapa — Service Worker v5
+ * PastillasPapa — Service Worker v6
  * Web Push estándar con VAPID — iOS 16.4+ con PWA instalada
  * Sin Firebase, sin Apple Developer, gratis
  */
 
-const CACHE_NAME = 'pastillas-papa-v5';
+const CACHE_NAME = 'pastillas-papa-v6';
 
 const STATIC_ASSETS = [
   '/app/styles.css',

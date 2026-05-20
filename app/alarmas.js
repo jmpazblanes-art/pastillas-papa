@@ -6,6 +6,7 @@
 
 // Clave pública VAPID (la privada solo está en el servidor)
 const VAPID_PUBLIC_KEY = 'BCNgbW2waCXEtCaJfSohMJ07anmJpVnXnwfwtU8uqU6kU0LNQ_Lz4o0nsSSxhcTjqJviPkW9uynNVZ5bjv7_-8M';
+const PUSH_CLIENT_VERSION = '2026-05-20-2';
 
 export async function pedirPermisoNotificaciones() {
   if (!('Notification' in window)) return false;
@@ -43,15 +44,22 @@ export async function suscribirWebPush() {
     const swReg = await navigator.serviceWorker.ready;
     const suscripcionExistente = await swReg.pushManager.getSubscription();
     if (suscripcionExistente) {
-      localStorage.setItem('push_subscription', JSON.stringify(suscripcionExistente));
-      // Siempre re-registrar en Firestore por si se perdió
-      const res = await fetch('/api/push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'subscribe', subscription: suscripcionExistente }),
-      });
-      if (!res.ok) throw new Error(`Servidor push respondió ${res.status}`);
-      return suscripcionExistente;
+      const versionRegistrada = localStorage.getItem('push_client_version');
+      if (versionRegistrada !== PUSH_CLIENT_VERSION) {
+        await suscripcionExistente.unsubscribe().catch(() => {});
+        localStorage.removeItem('push_subscription');
+      } else {
+        localStorage.setItem('push_subscription', JSON.stringify(suscripcionExistente));
+        // Siempre re-registrar en Firestore por si se perdió
+        const res = await fetch('/api/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'subscribe', subscription: suscripcionExistente }),
+        });
+        if (!res.ok) throw new Error(`Servidor push respondió ${res.status}`);
+        localStorage.setItem('push_client_version', PUSH_CLIENT_VERSION);
+        return suscripcionExistente;
+      }
     }
 
     // Crear nueva suscripción
@@ -70,6 +78,7 @@ export async function suscribirWebPush() {
     });
     if (!res.ok) throw new Error(`Servidor push respondió ${res.status}`);
 
+    localStorage.setItem('push_client_version', PUSH_CLIENT_VERSION);
     console.log('Web Push suscrito ✅');
     return suscripcion;
 
