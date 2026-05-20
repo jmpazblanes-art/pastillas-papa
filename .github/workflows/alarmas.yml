@@ -1,8 +1,10 @@
-name: Disparar alarmas cada 5 minutos
+name: Disparar alarmas fijas
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    # Reintentos alrededor de 07:00, 08:00, 19:00 y 21:00 hora España.
+    # GitHub usa UTC; se cubren horario de verano e invierno y el script filtra por hora real en Madrid.
+    - cron: '0,10,20,30 5,6,7,8,17,18,19,20 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -36,4 +38,6 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           FORCE_TEST: ${{ github.event.inputs.force || 'false' }}
+          FIXED_ONLY: 'true'
+          WINDOW_MINUTES: '90'
         run: node scripts/cron-push.js

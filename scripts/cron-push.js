@@ -8,6 +8,7 @@ const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
 const VAPID_EMAIL = 'mailto:jmpazblanes@gmail.com';
 const WINDOW_MINUTES = Number(process.env.WINDOW_MINUTES || 15);
 const FORCE_TEST = process.env.FORCE_TEST === 'true';
+const FIXED_ONLY = process.env.FIXED_ONLY === 'true';
 
 const HORARIOS_DEFAULT = {
   '07:00': { titulo: '💊 Tacrolimus + CellCept', cuerpo: 'En AYUNAS — esperar 1h antes de desayunar' },
@@ -112,7 +113,7 @@ async function main() {
   const hoy = fechaEspana();
   const horariosDoc = await db.collection('config').doc('horarios').get();
   const horariosData = horariosDoc.exists ? horariosDoc.data() : {};
-  const horariosUsuario = horariosData?.horarios || {};
+  const horariosUsuario = FIXED_ONLY ? {} : (horariosData?.horarios || {});
   const disparadas = horariosData?.disparadas || {};
 
   const alarmasAEnviar = [];
@@ -137,6 +138,7 @@ async function main() {
 
   console.log(`Hora España: ${ahora}`);
   console.log(`Ventana revisada: ${horasEnVentana().join(', ')}`);
+  console.log(`Modo: ${FIXED_ONLY ? '4 alarmas fijas' : 'horarios sincronizados desde app'}`);
   console.log(`Alarmas candidatas: ${alarmasAEnviar.length}`);
 
   if (alarmasAEnviar.length === 0) {
