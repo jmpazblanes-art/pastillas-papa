@@ -43,8 +43,13 @@ export async function suscribirWebPush() {
     const swReg = await navigator.serviceWorker.ready;
     const suscripcionExistente = await swReg.pushManager.getSubscription();
     if (suscripcionExistente) {
-      // Guardar en localStorage por si acaso
       localStorage.setItem('push_subscription', JSON.stringify(suscripcionExistente));
+      // Siempre re-registrar en Firestore por si se perdió
+      await fetch('/api/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'subscribe', subscription: suscripcionExistente }),
+      }).catch(() => {});
       return suscripcionExistente;
     }
 
