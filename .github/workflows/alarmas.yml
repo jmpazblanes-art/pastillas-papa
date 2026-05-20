@@ -14,5 +14,5 @@ jobs:
           curl -s -X POST \
             -H "Content-Type: application/json" \
             -d '{"action":"cron"}' \
-            "https://pastillas-papa.vercel.app/api/push" \
-            -w "\nHTTP status: %{http_code}\n"
+            "https://pastillas-papa.vercel.app/api/push?_vercel_share=3Y5iJmdznIhgXtDgYIEmhTxdNw0pepgK" \
+            -w "\nHTTP: %{http_code}\n"
