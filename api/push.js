@@ -41,6 +41,24 @@ function horaEspana() {
   }).format(new Date());
 }
 
+// Devuelve todas las horas HH:MM de los últimos `ventanaMinutos` minutos en hora española
+// Para que si el cron dispara a las 08:03 y la alarma es 08:00, se mande igual
+function horasEnVentana(ventanaMinutos = 5) {
+  const ahora = new Date();
+  const horas = [];
+  for (let i = 0; i < ventanaMinutos; i++) {
+    const t = new Date(ahora.getTime() - i * 60000);
+    const h = new Intl.DateTimeFormat('es-ES', {
+      timeZone: 'Europe/Madrid',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(t);
+    horas.push(h);
+  }
+  return [...new Set(horas)]; // sin duplicados
+}
+
 async function enviarPush(subscription, titulo, cuerpo) {
   webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
   return webpush.sendNotification(
@@ -64,23 +82,29 @@ export default async function handler(req, res) {
     const db = getDB();
 
     // Leer horarios del usuario desde Firestore (si los ha sincronizado)
-    let alarma = null;
+    // Busca en ventana de 5 min para tolerar retraso del cron externo
+    let alarmasAEnviar = [];
     if (forzar) {
-      alarma = { titulo: '💊 Prueba con app cerrada', cuerpo: '¡Funciona! Las alarmas llegarán aunque cierres la app ✅' };
+      alarmasAEnviar = [{ titulo: '💊 Prueba con app cerrada', cuerpo: '¡Funciona! Las alarmas llegarán aunque cierres la app ✅' }];
     } else {
+      const ventana = horasEnVentana(5);
       const horariosDoc = await db.collection('config').doc('horarios').get();
-      if (horariosDoc.exists) {
-        const horariosUsuario = horariosDoc.data()?.horarios || {};
-        alarma = horariosUsuario[hora] || null;
-      }
-      // Fallback a horarios por defecto si no hay sync
-      if (!alarma) {
-        alarma = HORARIOS_DEFAULT[hora] || null;
+      const horariosUsuario = horariosDoc.exists ? (horariosDoc.data()?.horarios || {}) : {};
+      const disparadas = horariosDoc.exists ? (horariosDoc.data()?.disparadas || {}) : {};
+
+      for (const h of ventana) {
+        const alarma = horariosUsuario[h] || HORARIOS_DEFAULT[h] || null;
+        if (!alarma) continue;
+        // Evitar mandar la misma alarma dos veces en la misma ventana
+        const hoy = new Date().toISOString().slice(0, 10);
+        const claveDisparo = `${hoy}_${h}`;
+        if (disparadas[claveDisparo]) continue;
+        alarmasAEnviar.push({ ...alarma, claveDisparo });
       }
     }
 
-    if (!alarma) {
-      return res.status(200).json({ ok: true, msg: `Sin alarma a las ${hora}` });
+    if (alarmasAEnviar.length === 0) {
+      return res.status(200).json({ ok: true, msg: `Sin alarma en esta ventana (hora España: ${hora})` });
     }
 
     const snap = await db.collection('suscripciones').get();
@@ -88,19 +112,35 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, msg: 'Sin suscripciones' });
     }
 
-    const results = await Promise.allSettled(
-      snap.docs.map(doc => enviarPush(doc.data().subscription, alarma.titulo, alarma.cuerpo))
-    );
+    let totalEnviados = 0;
+    const disparadasUpdate = {};
 
-    // Limpiar suscripciones caducadas
-    for (let i = 0; i < results.length; i++) {
-      if (results[i].status === 'rejected') {
-        await snap.docs[i].ref.delete();
+    for (const alarma of alarmasAEnviar) {
+      const results = await Promise.allSettled(
+        snap.docs.map(doc => enviarPush(doc.data().subscription, alarma.titulo, alarma.cuerpo))
+      );
+
+      // Limpiar suscripciones caducadas
+      for (let i = 0; i < results.length; i++) {
+        if (results[i].status === 'rejected') {
+          await snap.docs[i].ref.delete();
+        }
+      }
+
+      totalEnviados += results.filter(r => r.status === 'fulfilled').length;
+
+      // Marcar como disparada para no repetir
+      if (alarma.claveDisparo) {
+        disparadasUpdate[`disparadas.${alarma.claveDisparo}`] = true;
       }
     }
 
-    const enviados = results.filter(r => r.status === 'fulfilled').length;
-    return res.status(200).json({ ok: true, hora, enviados });
+    // Guardar claves disparadas en Firestore
+    if (Object.keys(disparadasUpdate).length > 0) {
+      await db.collection('config').doc('horarios').set(disparadasUpdate, { merge: true });
+    }
+
+    return res.status(200).json({ ok: true, hora, enviados: totalEnviados, alarmas: alarmasAEnviar.length });
   }
 
   // POST
