@@ -74,6 +74,16 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
+  // Bypass de protección Vercel para llamadas del cron externo
+  const cronSecret = process.env.CRON_SECRET;
+  if (req.method === 'GET' && cronSecret && req.query?.secret !== cronSecret) {
+    // Solo bloquear si viene sin secret Y no es una petición del browser (tiene Accept: text/html)
+    const accept = req.headers['accept'] || '';
+    if (!accept.includes('text/html')) {
+      return res.status(401).json({ error: 'No autorizado' });
+    }
+  }
+
   // GET — cron cada minuto (o ?force=1 para probar)
   if (req.method === 'GET') {
     const hora = horaEspana();
@@ -155,6 +165,52 @@ export default async function handler(req, res) {
       const id = Buffer.from(subscription.endpoint).toString('base64').slice(-20);
       await db.collection('suscripciones').doc(id).set({ subscription, updatedAt: Date.now() });
       return res.status(200).json({ ok: true });
+    }
+
+    // Cron externo via POST (para evitar WAF de Vercel en GET)
+    if (action === 'cron') {
+      const db = getDB();
+      const hora = horaEspana();
+      const ventana = horasEnVentana(5);
+      const horariosDoc = await db.collection('config').doc('horarios').get();
+      const horariosUsuario = horariosDoc.exists ? (horariosDoc.data()?.horarios || {}) : {};
+      const disparadas = horariosDoc.exists ? (horariosDoc.data()?.disparadas || {}) : {};
+
+      const alarmasAEnviar = [];
+      for (const h of ventana) {
+        const alarma = horariosUsuario[h] || HORARIOS_DEFAULT[h] || null;
+        if (!alarma) continue;
+        const hoy = new Date().toISOString().slice(0, 10);
+        const claveDisparo = `${hoy}_${h}`;
+        if (disparadas[claveDisparo]) continue;
+        alarmasAEnviar.push({ ...alarma, claveDisparo });
+      }
+
+      if (alarmasAEnviar.length === 0) {
+        return res.status(200).json({ ok: true, msg: `Sin alarma (hora España: ${hora})` });
+      }
+
+      const snap = await db.collection('suscripciones').get();
+      if (snap.empty) return res.status(200).json({ ok: true, msg: 'Sin suscripciones' });
+
+      let totalEnviados = 0;
+      const disparadasUpdate = {};
+      for (const alarma of alarmasAEnviar) {
+        const results = await Promise.allSettled(
+          snap.docs.map(doc => enviarPush(doc.data().subscription, alarma.titulo, alarma.cuerpo))
+        );
+        for (let i = 0; i < results.length; i++) {
+          if (results[i].status === 'rejected') await snap.docs[i].ref.delete();
+        }
+        totalEnviados += results.filter(r => r.status === 'fulfilled').length;
+        if (alarma.claveDisparo) disparadasUpdate[`disparadas.${alarma.claveDisparo}`] = true;
+      }
+
+      if (Object.keys(disparadasUpdate).length > 0) {
+        await db.collection('config').doc('horarios').set(disparadasUpdate, { merge: true });
+      }
+
+      return res.status(200).json({ ok: true, hora, enviados: totalEnviados });
     }
 
     // Sincronizar horarios reales del usuario

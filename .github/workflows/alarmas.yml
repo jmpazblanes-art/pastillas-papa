@@ -1,10 +1,9 @@
-name: Disparar alarmas cada minuto
+name: Disparar alarmas cada 5 minutos
 
 on:
   schedule:
-    # GitHub Actions permite cada 5 minutos como mínimo
     - cron: '*/5 * * * *'
-  workflow_dispatch: # permite disparar manualmente también
+  workflow_dispatch:
 
 jobs:
   trigger:
@@ -12,4 +11,8 @@ jobs:
     steps:
       - name: Llamar al endpoint de alarmas
         run: |
-          curl -s "https://pastillas-papa.vercel.app/api/push" || true
+          curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"action":"cron"}' \
+            "https://pastillas-papa.vercel.app/api/push" \
+            -w "\nHTTP status: %{http_code}\n"
