@@ -1,57 +1,11 @@
 /**
  * PastillasPapa — Sistema de Alarmas
- * v2: Firebase Cloud Messaging para push reales en iOS aunque la app esté cerrada
+ * Web Push estándar con VAPID — funciona en iOS 16.4+ con PWA instalada
+ * Sin Firebase, sin Apple Developer, gratis
  */
 
-import { initFirebase, obtenerTokenFCM, escucharMensajesFCM } from './firebase.js';
-
-// Registrar token FCM en el servidor para recibir push
-async function registrarTokenEnServidor(token) {
-  try {
-    // Guardamos el token en localStorage — el servidor lo lee via env var
-    // En una versión más completa iría a Firestore
-    const tokenGuardado = localStorage.getItem('fcm_token_registrado');
-    if (tokenGuardado === token) return; // Ya registrado
-    localStorage.setItem('fcm_token_registrado', token);
-    console.log('Token FCM registrado:', token.substring(0, 20) + '...');
-  } catch (e) {
-    console.warn('No se pudo registrar token:', e);
-  }
-}
-
-export async function iniciarFCM() {
-  try {
-    initFirebase();
-    const token = await obtenerTokenFCM();
-    if (token) {
-      await registrarTokenEnServidor(token);
-      // Escuchar mensajes cuando la app está en primer plano
-      escucharMensajesFCM((payload) => {
-        const { title, body } = payload.notification || {};
-        mostrarNotificacion(title || '💊 Pastillas', body || '', 'fcm');
-      });
-    }
-    return token;
-  } catch (e) {
-    console.warn('FCM no disponible, usando alarmas locales:', e.message);
-    return null;
-  }
-}
-
-export async function probarPushFCM() {
-  const token = localStorage.getItem('fcm_token');
-  if (!token) return false;
-  try {
-    const res = await fetch('/api/push', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'send_test', token }),
-    });
-    return res.ok;
-  } catch (e) {
-    return false;
-  }
-}
+// Clave pública VAPID (la privada solo está en el servidor)
+const VAPID_PUBLIC_KEY = 'BCNgbW2waCXEtCaJfSohMJ07anmJpVnXnwfwtU8uqU6kU0LNQ_Lz4o0nsSSxhcTjqJviPkW9uynNVZ5bjv7_-8M';
 
 export async function pedirPermisoNotificaciones() {
   if (!('Notification' in window)) return false;
@@ -65,7 +19,7 @@ export function tienePermiso() {
   return 'Notification' in window && Notification.permission === 'granted';
 }
 
-// Registrar el Service Worker (necesario para notificaciones en iOS)
+// Registrar el Service Worker
 export async function registrarServiceWorker() {
   if (!('serviceWorker' in navigator)) return null;
   try {
@@ -77,20 +31,75 @@ export async function registrarServiceWorker() {
   }
 }
 
-// Programar alarmas para el día de hoy
-// Usa Service Worker si está disponible (iOS), fallback a setTimeout
+// Suscribir al push del servidor via Web Push estándar
+export async function suscribirWebPush() {
+  if (!tienePermiso()) return null;
+  if (!('PushManager' in window)) {
+    console.warn('PushManager no disponible en este navegador');
+    return null;
+  }
+
+  try {
+    const swReg = await navigator.serviceWorker.ready;
+    const suscripcionExistente = await swReg.pushManager.getSubscription();
+    if (suscripcionExistente) {
+      // Guardar en localStorage por si acaso
+      localStorage.setItem('push_subscription', JSON.stringify(suscripcionExistente));
+      return suscripcionExistente;
+    }
+
+    // Crear nueva suscripción
+    const suscripcion = await swReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+
+    localStorage.setItem('push_subscription', JSON.stringify(suscripcion));
+
+    // Registrar en el servidor (para que Vercel pueda mandarle push)
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'subscribe', subscription: suscripcion }),
+    }).catch(() => {}); // No crítico si falla
+
+    console.log('Web Push suscrito ✅');
+    return suscripcion;
+
+  } catch (e) {
+    console.warn('Error al suscribir Web Push:', e);
+    return null;
+  }
+}
+
+// Mandar push de prueba desde el servidor
+export async function probarPushFCM() {
+  const subStr = localStorage.getItem('push_subscription');
+  if (!subStr) return false;
+  try {
+    const subscription = JSON.parse(subStr);
+    const res = await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'test', subscription }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Programar alarmas locales (fallback para cuando la app está abierta)
 export async function programarAlarmasHoy(tomas, medicamentos) {
   if (!tienePermiso()) return;
 
   const ahora = new Date();
 
-  // Limpiar timers anteriores (fallback)
   if (window._alarmaTimers) {
     window._alarmaTimers.forEach(t => clearTimeout(t));
   }
   window._alarmaTimers = [];
 
-  // Agrupar tomas por hora
   const grupos = {};
   for (const toma of tomas) {
     if (!toma.activa) continue;
@@ -99,7 +108,6 @@ export async function programarAlarmasHoy(tomas, medicamentos) {
     if (med) grupos[toma.hora].push(med);
   }
 
-  // Obtener SW si está disponible
   let swReg = null;
   if ('serviceWorker' in navigator) {
     swReg = await navigator.serviceWorker.ready.catch(() => null);
@@ -109,9 +117,8 @@ export async function programarAlarmasHoy(tomas, medicamentos) {
     const [h, m] = hora.split(':').map(Number);
     const objetivo = new Date();
     objetivo.setHours(h, m, 0, 0);
-
     const diff = objetivo - ahora;
-    if (diff <= 0) continue; // Ya pasó esta hora hoy
+    if (diff <= 0) continue;
 
     const nombres = meds.map(med => med.nombre).join(', ');
     const cantidad = meds.length;
@@ -119,30 +126,9 @@ export async function programarAlarmasHoy(tomas, medicamentos) {
     const cuerpo = `${hora} — ${cantidad} pastilla${cantidad > 1 ? 's' : ''}: ${nombres}`;
 
     if (swReg && swReg.active) {
-      // iOS / PWA: usar Service Worker (funciona en segundo plano)
-      swReg.active.postMessage({
-        type: 'PROGRAMAR_ALARMA',
-        hora,
-        titulo,
-        cuerpo,
-        delayMs: diff,
-      });
+      swReg.active.postMessage({ type: 'PROGRAMAR_ALARMA', hora, titulo, cuerpo, delayMs: diff });
     } else {
-      // Fallback: setTimeout en el main thread (Mac/Chrome)
-      const timer = setTimeout(() => {
-        mostrarNotificacion(titulo, cuerpo, hora);
-        let reintentos = 0;
-        const intervalo = setInterval(() => {
-          reintentos++;
-          if (reintentos >= 3) { clearInterval(intervalo); return; }
-          mostrarNotificacion(
-            `🔔 Recordatorio — Pastillas de las ${hora}`,
-            `¿Ya las has tomado? ${nombres}`,
-            hora
-          );
-        }, 5 * 60 * 1000);
-        window._alarmaTimers.push(intervalo);
-      }, diff);
+      const timer = setTimeout(() => mostrarNotificacion(titulo, cuerpo, hora), diff);
       window._alarmaTimers.push(timer);
     }
   }
@@ -150,44 +136,31 @@ export async function programarAlarmasHoy(tomas, medicamentos) {
 
 export function mostrarNotificacion(titulo, cuerpo, hora) {
   if (!tienePermiso()) return;
-
   const n = new Notification(titulo, {
     body: cuerpo,
-    icon: '/app/icons/icon-192.png',
-    badge: '/app/icons/icon-72.png',
+    icon: '/app/icons/icon-192.svg',
     tag: `pastillas-${hora}`,
     requireInteraction: true,
     vibrate: [200, 100, 200, 100, 200],
   });
-
-  n.onclick = () => {
-    window.focus();
-    n.close();
-  };
+  n.onclick = () => { window.focus(); n.close(); };
 }
 
-// Calcular próxima toma
 export function proximaToma(tomas) {
   const ahora = new Date();
   const horaActual = ahora.getHours() * 60 + ahora.getMinutes();
-
   const horas = [...new Set(tomas.filter(t => t.activa).map(t => t.hora))].sort();
-
   for (const hora of horas) {
     const [h, m] = hora.split(':').map(Number);
-    const minutos = h * 60 + m;
-    if (minutos > horaActual) return hora;
+    if (h * 60 + m > horaActual) return hora;
   }
-
-  return horas[0] || null; // Si ya pasaron todas, la primera de mañana
+  return horas[0] || null;
 }
 
-// Sonido de alarma (Web Audio API — sin archivos externos)
 export function reproducirSonidoAlarma() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const notas = [523, 659, 784, 659, 784]; // Do Mi Sol Mi Sol
-
+    const notas = [523, 659, 784, 659, 784];
     notas.forEach((freq, i) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -200,7 +173,16 @@ export function reproducirSonidoAlarma() {
       osc.start(ctx.currentTime + i * 0.25);
       osc.stop(ctx.currentTime + i * 0.25 + 0.25);
     });
-  } catch (e) {
-    // Silencio si no hay soporte
-  }
+  } catch (e) {}
 }
+
+// Utilidad para convertir VAPID key
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+}
+
+// Alias para compatibilidad
+export const iniciarFCM = suscribirWebPush;

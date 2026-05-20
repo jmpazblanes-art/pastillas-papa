@@ -14,6 +14,7 @@ import {
   registrarServiceWorker, programarAlarmasHoy, proximaToma, reproducirSonidoAlarma,
   mostrarNotificacion, iniciarFCM, probarPushFCM
 } from './alarmas.js';
+// firebase.js eliminado — usamos Web Push estándar sin Firebase
 
 import {
   fechaHoy, formatearFecha, emojiToma, etiquetaToma,
