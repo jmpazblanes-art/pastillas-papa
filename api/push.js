@@ -54,10 +54,13 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // GET — cron cada hora
+  // GET — cron cada hora (o ?force=1 para probar)
   if (req.method === 'GET') {
     const hora = horaEspana();
-    const alarma = HORARIOS[hora];
+    const forzar = req.query?.force === '1';
+    const alarma = forzar
+      ? { titulo: '💊 Prueba con app cerrada', cuerpo: '¡Funciona! Las alarmas llegarán aunque cierres la app ✅' }
+      : HORARIOS[hora];
     if (!alarma) {
       return res.status(200).json({ ok: true, msg: `Sin alarma a las ${hora}` });
     }
