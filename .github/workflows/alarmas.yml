@@ -39,5 +39,6 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           FORCE_TEST: ${{ github.event.inputs.force || 'false' }}
           FIXED_ONLY: 'true'
-          WINDOW_MINUTES: '1'
+          WINDOW_MINUTES: '90'
         run: node scripts/cron-push.js
+
