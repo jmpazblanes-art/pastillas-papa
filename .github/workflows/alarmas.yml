@@ -4,7 +4,7 @@ on:
   schedule:
     # Minuto exacto de las 4 tomas fijas en hora España.
     # GitHub usa UTC; se cubren verano e invierno y el script filtra por hora real en Madrid.
-    - cron: '0 5,6,7,8,17,18,19,20 * * *'
+    - cron: '0 5,6,7,8,12,17,18,19,20 * * *'
   workflow_dispatch:
     inputs:
       force:
