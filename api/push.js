@@ -115,13 +115,14 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const hora = horaEspana();
     const forzar = req.query?.force === '1';
+    const safeDiag = req.query?.force === 'safe'; // diagnóstico sin borrar suscripciones
 
     const db = getDB();
 
     // Leer horarios del usuario desde Firestore (si los ha sincronizado)
     // Busca en ventana de 5 min para tolerar retraso del cron externo
     let alarmasAEnviar = [];
-    if (forzar) {
+    if (forzar || safeDiag) {
       alarmasAEnviar = [{ titulo: '💊 Prueba con app cerrada', cuerpo: '¡Funciona! Las alarmas llegarán aunque cierres la app ✅' }];
     } else {
       const ventana = horasEnVentana(5);
@@ -162,10 +163,12 @@ export default async function handler(req, res) {
         ))
       );
 
-      // Limpiar suscripciones caducadas
+      // Limpiar suscripciones caducadas (skip en modo safe para diagnóstico)
       for (let i = 0; i < results.length; i++) {
         if (results[i].status === 'rejected') {
-          await snap.docs[i].ref.delete();
+          const err = results[i].reason;
+          console.error(`PUSH_FAIL_GET sub=${snap.docs[i].id} status=${err?.statusCode} msg=${err?.message} body=${err?.body}`);
+          if (!safeDiag) await snap.docs[i].ref.delete();
         }
       }
 
