@@ -286,7 +286,9 @@ export default async function handler(req, res) {
         const result = await enviarPush(subscription, '💊 ¡Las alarmas funcionan!', 'Esta notificación llegó aunque la app estuviera cerrada ✅');
         return res.status(200).json({ ok: true, deliveryId: result.deliveryId });
       } catch (e) {
-        return res.status(500).json({ error: e.message });
+        const endpoint = subscription?.endpoint ? new URL(subscription.endpoint).host : 'unknown';
+        console.error(`TEST_PUSH_FAIL endpoint=${endpoint} status=${e?.statusCode} msg=${e?.message} body=${e?.body}`);
+        return res.status(500).json({ error: e.message, statusCode: e?.statusCode, body: e?.body });
       }
     }
 
