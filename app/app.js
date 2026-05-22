@@ -150,9 +150,9 @@ function renderNav() {
   const nav = document.getElementById('bottom-nav');
   const items = [
     { id: 'hoy',      icon: '💊', label: 'Hoy' },
-    { id: 'historial', icon: '📅', label: 'Historial' },
     { id: 'pastillas', icon: '⚙️', label: 'Pastillas' },
     { id: 'alarmas',   icon: '🔔', label: 'Alarmas' },
+    { id: 'cuidados',  icon: '🥗', label: 'Cuidados' },
     { id: 'info',      icon: '📖', label: 'Guía' },
   ];
 
@@ -172,10 +172,10 @@ window.navegarA = async function(pagina) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
 
   switch (pagina) {
-    case 'hoy':      renderPaginaHoy();      break;
-    case 'historial': renderPaginaHistorial(); break;
+    case 'hoy':       renderPaginaHoy();       break;
     case 'pastillas': renderPaginaPastillas(); break;
     case 'alarmas':   renderPaginaAlarmas();   break;
+    case 'cuidados':  renderPaginaCuidados();  break;
     case 'info':      renderPaginaInfo();      break;
   }
   document.getElementById(`page-${pagina}`).classList.add('active');
@@ -1018,32 +1018,27 @@ async function guardarInfo() {
 
 async function renderPaginaInfo() {
   const page = document.getElementById('page-info');
-  await cargarInfo();
-  const { comidas, habitos } = state.infoData;
 
   let html = `
     <div class="app-header">
       <div class="header-left">
-        <div class="greeting">Información</div>
+        <div class="greeting">Ayuda</div>
         <div class="title">Guía 📖</div>
-        <div class="subtitle">Uso de la app y cuidados</div>
+        <div class="subtitle">Cómo usar la app</div>
       </div>
     </div>
     <div class="content">
-  `;
-
-  // ---- TUTORIAL ----
-  html += `<div class="section-label">Cómo usar la app</div>
-    <div style="background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;margin-bottom:16px">
+    <div style="background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;margin-bottom:32px">
   `;
   const pasos = [
     ['💊', 'Marcar pastillas', 'En "Hoy" toca cada pastilla para marcarla como tomada. O toca el botón de abajo para marcar toda una toma de golpe.'],
     ['🔔', 'Activar alarmas', 'En "Alarmas" debe aparecer ✅ Alarmas activadas. Si no, toca el banner. Las alarmas llegan aunque el iPhone esté bloqueado.'],
-    ['⚙️', 'Cambiar horarios', 'En "Alarmas" toca la hora de cada toma para cambiarla. Se guarda y sincroniza a todos los móviles.'],
+    ['⚙️', 'Cambiar horarios', 'En "Alarmas" toca la hora de cada toma para cambiarla. Se guarda y sincroniza a todos los móviles automáticamente.'],
     ['➕', 'Añadir pastilla nueva', 'En "Pastillas" toca el botón + abajo a la derecha. Rellena nombre, dosis y añade las horas.'],
     ['✏️', 'Editar o borrar pastilla', 'En "Pastillas" usa los botones ✏️ (editar) y 🗑️ (borrar) que hay a la derecha de cada medicamento.'],
-    ['🔄', 'Volver al horario original', 'En "Pastillas" baja al final y toca "🔄 Restablecer medicamentos originales". Vuelve al horario completo del trasplante.'],
-    ['📱', 'Sincronización automática', 'Los cambios se sincronizan entre todos los móviles solos en menos de 2 minutos.'],
+    ['🔄', 'Volver al horario original', 'En "Pastillas" baja al final y toca "🔄 Restablecer medicamentos originales". Vuelve al horario completo del trasplante del hospital.'],
+    ['📱', 'Sincronización automática', 'Los cambios en cualquier móvil se sincronizan solos en todos los demás en menos de 2 minutos.'],
+    ['🥗', 'Comidas y hábitos', 'En la pestaña "Cuidados" puedes añadir comidas prohibidas y hábitos importantes para recordar.'],
     ['🔧', 'Las alarmas no llegan', 'Ve a "Alarmas" y toca "🔧 Reparar notificaciones de este iPhone". Luego prueba con "🔔 Probar notificación ahora".'],
   ];
   pasos.forEach(([icon, titulo, desc]) => {
@@ -1055,7 +1050,25 @@ async function renderPaginaInfo() {
       <p style="font-size:13px;color:var(--text2);margin:0;padding-left:28px;line-height:1.5">${desc}</p>
     </div>`;
   });
-  html += `</div>`;
+  html += `</div></div>`;
+  page.innerHTML = html;
+}
+
+async function renderPaginaCuidados() {
+  const page = document.getElementById('page-cuidados');
+  await cargarInfo();
+  const { comidas, habitos } = state.infoData;
+
+  let html = `
+    <div class="app-header">
+      <div class="header-left">
+        <div class="greeting">Trasplante de pulmón</div>
+        <div class="title">Cuidados 🥗</div>
+        <div class="subtitle">Comidas y hábitos del paciente</div>
+      </div>
+    </div>
+    <div class="content">
+  `;
 
   // ---- COMIDAS PROHIBIDAS ----
   html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
