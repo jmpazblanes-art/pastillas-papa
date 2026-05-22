@@ -13,9 +13,13 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { randomUUID } from 'crypto';
 
-const VAPID_PUBLIC  = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PUBLIC_RAW = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
-const VAPID_EMAIL   = 'mailto:jmpazblanes@gmail.com';
+const VAPID_EMAIL = 'mailto:jmpazblanes@gmail.com';
+// Vercel env var has truncated key (63 bytes instead of required 65). Public key is safe to hardcode — already in client alarmas.js.
+const VAPID_PUBLIC = (VAPID_PUBLIC_RAW && Buffer.from(VAPID_PUBLIC_RAW, 'base64url').length === 65)
+  ? VAPID_PUBLIC_RAW
+  : 'BCNgbW2waCXEtCaJfSohMJ07anmJpVnXnwfwtU8uqU6kU0LNQ_Lz4o0nsSSxhcTjqJviPkW9uynNVZ5bjv7_-8M';
 
 // Horarios por defecto (se usan si el usuario no ha sincronizado los suyos)
 const HORARIOS_DEFAULT = {
