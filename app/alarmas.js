@@ -6,7 +6,7 @@
 
 // Clave pública VAPID (la privada solo está en el servidor)
 const VAPID_PUBLIC_KEY = 'BCNgbW2waCXEtCaJfSohMJ07anmJpVnXnwfwtU8uqU6kU0LNQ_Lz4o0nsSSxhcTjqJviPkW9uynNVZ5bjv7_-8M';
-const PUSH_CLIENT_VERSION = '2026-05-20-2';
+const PUSH_CLIENT_VERSION = '2026-05-22-1';
 
 export async function pedirPermisoNotificaciones() {
   if (!('Notification' in window)) return false;
