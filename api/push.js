@@ -23,8 +23,9 @@ const VAPID_PUBLIC = (VAPID_PUBLIC_RAW && Buffer.from(VAPID_PUBLIC_RAW, 'base64u
 
 // Horarios por defecto (se usan si el usuario no ha sincronizado los suyos)
 const HORARIOS_DEFAULT = {
-  '07:00': { titulo: '⚠️ Prograf + CellCept + Prednisona — EN AYUNAS', cuerpo: 'Prograf 6mg · CellCept 2x500mg · Prednisona 40mg · Sin haber comido nada · Esperar 1h antes de desayunar' },
-  '08:00': { titulo: '💊 Pastillas del desayuno', cuerpo: 'Calcio 1250mg · Magnesio 53mg · Amlodipino 5mg · Bisoprolol 2.5mg · Omeprazol 20mg' },
+  '07:00': { titulo: '⚠️ Prograf + CellCept — EN AYUNAS', cuerpo: 'Prograf 6mg · CellCept 2x500mg · Sin haber comido nada · Esperar 1h antes de desayunar' },
+  '08:00': { titulo: '💊 Prednisona', cuerpo: 'Prednisona 40mg · Con el desayuno' },
+  '09:00': { titulo: '💊 Pastillas del desayuno', cuerpo: 'Calcio 1250mg · Magnesio 53mg · Amlodipino 5mg · Bisoprolol 2.5mg · Omeprazol 20mg' },
   '14:00': { titulo: '💊 Pastillas de la comida', cuerpo: 'Zitromax 250mg · Valganciclovir 900mg · Septrin Forte 160/800mg' },
   '19:00': { titulo: '⚠️ Prograf + CellCept — EN AYUNAS', cuerpo: 'Prograf 6mg + CellCept 2x500mg · Sin haber comido nada · Esperar 1h antes de cenar' },
   '22:00': { titulo: '💊 Pastillas antes de dormir', cuerpo: 'Magnesio 53mg · Calcio 1250 · Amlodipino 5mg · Bisoprolol 2.5mg · Omeprazol 20mg' },

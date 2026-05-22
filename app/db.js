@@ -343,10 +343,14 @@ export async function seedDemoData() {
   const horarios = [
     {
       hora: '07:00',
-      meds: [0, 1, 2], // Tacrolimus + CellCept + Prednisona — EN AYUNAS (esperar 1h antes de desayunar)
+      meds: [0, 1], // Tacrolimus + CellCept — EN AYUNAS (esperar 1h antes de desayunar)
     },
     {
       hora: '08:00',
+      meds: [2], // Prednisona — con el desayuno
+    },
+    {
+      hora: '09:00',
       meds: [3, 4, 5, 6, 7, 8], // Desayuno: Calcio + Magnesio + Amlodipino + Bisoprolol + Omeprazol + Linezolid
     },
     {
