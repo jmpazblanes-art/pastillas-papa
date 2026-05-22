@@ -217,6 +217,18 @@ export function getAllRegistros() {
   });
 }
 
+// Borrar solo medicamentos y tomas (conserva historial de registros)
+export function clearScheduleLocal() {
+  return new Promise((resolve, reject) => {
+    if (!db) { reject(new Error('DB no inicializada')); return; }
+    const tx = db.transaction(['medicamentos', 'tomas'], 'readwrite');
+    tx.objectStore('medicamentos').clear();
+    tx.objectStore('tomas').clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 // Borrar TODOS los datos (para reinstalar datos reales)
 export function clearAllData() {
   return new Promise((resolve, reject) => {

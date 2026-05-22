@@ -65,6 +65,44 @@ function horasEnVentana(ventanaMinutos = 5) {
   return [...new Set(horas)]; // sin duplicados
 }
 
+// Construye las alarmas a enviar usando el schedule real de Firestore (medicamentos + tomas)
+// Fallback a HORARIOS_DEFAULT si no hay schedule guardado
+function buildAlarmasDesdeSchedule(ventana, scheduleData, disparadas) {
+  const alarmasAEnviar = [];
+  const { medicamentos = [], tomas = [] } = scheduleData || {};
+
+  for (const h of ventana) {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const claveDisparo = `${hoy}_${h}`;
+    if (disparadas[claveDisparo]) continue;
+
+    // Intentar construir desde el schedule real
+    if (medicamentos.length > 0 && tomas.length > 0) {
+      const tomasHora = tomas.filter(t => t.hora === h && t.activa !== false);
+      if (tomasHora.length > 0) {
+        const meds = tomasHora
+          .map(t => medicamentos.find(m => m.id === t.medicamento_id))
+          .filter(Boolean);
+        if (meds.length > 0) {
+          const esAyunas = meds.some(m => m.indicaciones && m.indicaciones.toLowerCase().includes('ayunas'));
+          const titulo = esAyunas ? `⚠️ Pastillas ${h} — EN AYUNAS` : `💊 Pastillas ${h}`;
+          const partes = meds.map(m => `${m.nombre} ${m.dosis}`);
+          const instruccion = esAyunas ? ' · Sin haber comido · Esperar 1h' : '';
+          const cuerpo = partes.join(' · ') + instruccion;
+          alarmasAEnviar.push({ titulo, cuerpo, claveDisparo });
+          continue;
+        }
+      }
+    }
+
+    // Fallback a HORARIOS_DEFAULT
+    const alarmaDefault = HORARIOS_DEFAULT[h];
+    if (alarmaDefault) alarmasAEnviar.push({ ...alarmaDefault, claveDisparo });
+  }
+
+  return alarmasAEnviar;
+}
+
 async function enviarPush(subscription, titulo, cuerpo, tag = null) {
   webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
   const endpointHost = subscription?.endpoint ? new URL(subscription.endpoint).host : 'endpoint-desconocido';
@@ -119,6 +157,14 @@ export default async function handler(req, res) {
     });
   }
 
+  // GET — leer schedule sincronizado (?schedule=1)
+  if (req.method === 'GET' && req.query?.schedule === '1') {
+    const db = getDB();
+    const doc = await db.collection('config').doc('schedule').get();
+    if (!doc.exists) return res.status(200).json({ ok: true, schedule: null });
+    return res.status(200).json({ ok: true, schedule: doc.data() });
+  }
+
   // GET — cron cada minuto (o ?force=1 para probar)
   if (req.method === 'GET') {
     const hora = horaEspana();
@@ -134,21 +180,13 @@ export default async function handler(req, res) {
       alarmasAEnviar = [{ titulo: '💊 Prueba con app cerrada', cuerpo: '¡Funciona! Las alarmas llegarán aunque cierres la app ✅' }];
     } else {
       const ventana = horasEnVentana(5);
-      const horariosDoc = await db.collection('config').doc('horarios').get();
-      const horariosUsuario = horariosDoc.exists ? (horariosDoc.data()?.horarios || {}) : {};
+      const [horariosDoc, scheduleDoc] = await Promise.all([
+        db.collection('config').doc('horarios').get(),
+        db.collection('config').doc('schedule').get(),
+      ]);
       const disparadas = horariosDoc.exists ? (horariosDoc.data()?.disparadas || {}) : {};
-
-      for (const h of ventana) {
-        // HORARIOS_DEFAULT tiene prioridad: usa siempre el contenido del hospital.
-        // horariosUsuario solo se usa para horas que el usuario haya añadido fuera del horario oficial.
-        const alarma = HORARIOS_DEFAULT[h] || horariosUsuario[h] || null;
-        if (!alarma) continue;
-        // Evitar mandar la misma alarma dos veces en la misma ventana
-        const hoy = new Date().toISOString().slice(0, 10);
-        const claveDisparo = `${hoy}_${h}`;
-        if (disparadas[claveDisparo]) continue;
-        alarmasAEnviar.push({ ...alarma, claveDisparo });
-      }
+      const scheduleData = scheduleDoc.exists ? scheduleDoc.data() : null;
+      alarmasAEnviar = buildAlarmasDesdeSchedule(ventana, scheduleData, disparadas);
     }
 
     if (alarmasAEnviar.length === 0) {
@@ -231,19 +269,13 @@ export default async function handler(req, res) {
       const db = getDB();
       const hora = horaEspana();
       const ventana = horasEnVentana(5);
-      const horariosDoc = await db.collection('config').doc('horarios').get();
-      const horariosUsuario = horariosDoc.exists ? (horariosDoc.data()?.horarios || {}) : {};
+      const [horariosDoc, scheduleDoc] = await Promise.all([
+        db.collection('config').doc('horarios').get(),
+        db.collection('config').doc('schedule').get(),
+      ]);
       const disparadas = horariosDoc.exists ? (horariosDoc.data()?.disparadas || {}) : {};
-
-      const alarmasAEnviar = [];
-      for (const h of ventana) {
-        const alarma = HORARIOS_DEFAULT[h] || horariosUsuario[h] || null;
-        if (!alarma) continue;
-        const hoy = new Date().toISOString().slice(0, 10);
-        const claveDisparo = `${hoy}_${h}`;
-        if (disparadas[claveDisparo]) continue;
-        alarmasAEnviar.push({ ...alarma, claveDisparo });
-      }
+      const scheduleData = scheduleDoc.exists ? scheduleDoc.data() : null;
+      const alarmasAEnviar = buildAlarmasDesdeSchedule(ventana, scheduleData, disparadas);
 
       if (alarmasAEnviar.length === 0) {
         return res.status(200).json({ ok: true, msg: `Sin alarma (hora España: ${hora})` });
@@ -279,6 +311,17 @@ export default async function handler(req, res) {
       }
 
       return res.status(200).json({ ok: true, hora, enviados: totalEnviados, total: snap.size });
+    }
+
+    // Guardar schedule completo (medicamentos + tomas) — fuente de verdad compartida entre dispositivos
+    if (action === 'save-schedule') {
+      const { medicamentos, tomas, updatedAt } = req.body || {};
+      if (!Array.isArray(medicamentos) || !Array.isArray(tomas)) {
+        return res.status(400).json({ error: 'medicamentos y tomas son arrays obligatorios' });
+      }
+      const db = getDB();
+      await db.collection('config').doc('schedule').set({ medicamentos, tomas, updatedAt: updatedAt || Date.now() });
+      return res.status(200).json({ ok: true });
     }
 
     // Sincronizar horarios reales del usuario

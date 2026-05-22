@@ -3,7 +3,7 @@
  */
 
 import {
-  initDB, seedDemoData, clearAllData,
+  initDB, seedDemoData, clearAllData, clearScheduleLocal,
   getMedicamentos, addMedicamento, updateMedicamento, deleteMedicamento,
   getTomas, addToma, updateToma, deleteToma,
   getRegistrosByFecha, addRegistro, deleteRegistro, getAllRegistros
@@ -34,25 +34,107 @@ let state = {
   horariosNuevoMed: [],  // horarios temp mientras crea pastilla
 };
 
+// ===== SYNC CON SERVIDOR (Firestore como fuente de verdad) =====
+const SYNC_TS_KEY = 'schedule_server_ts';
+
+async function cargarDesdeServidor() {
+  try {
+    const res = await fetch('/api/push?schedule=1');
+    if (!res.ok) return false;
+    const { schedule } = await res.json();
+    if (!schedule || !Array.isArray(schedule.medicamentos)) return false;
+
+    const localTs = Number(localStorage.getItem(SYNC_TS_KEY) || 0);
+    if (schedule.updatedAt <= localTs) return false; // ya estamos al día
+
+    // Servidor tiene datos más recientes — reemplazar datos locales
+    await clearScheduleLocal();
+    for (const med of schedule.medicamentos) {
+      await updateMedicamento(med); // put() = upsert con ID fijo
+    }
+    for (const toma of schedule.tomas) {
+      await updateToma(toma); // put() = upsert con ID fijo
+    }
+    localStorage.setItem(SYNC_TS_KEY, String(schedule.updatedAt));
+    console.log(`Schedule cargado desde servidor (${schedule.medicamentos.length} meds, ${schedule.tomas.length} tomas)`);
+    return true;
+  } catch (e) {
+    console.warn('Error al cargar schedule desde servidor:', e);
+    return false;
+  }
+}
+
+async function guardarEnServidor() {
+  try {
+    const medicamentos = await getMedicamentos();
+    const tomas = await getTomas();
+    const updatedAt = Date.now();
+    localStorage.setItem(SYNC_TS_KEY, String(updatedAt));
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-schedule', medicamentos, tomas, updatedAt }),
+    });
+    mostrarIndicadorSync('✅ Sincronizado');
+  } catch (e) {
+    console.warn('Error al guardar schedule en servidor:', e);
+  }
+}
+
+function mostrarIndicadorSync(msg) {
+  let el = document.getElementById('sync-indicator');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'sync-indicator';
+    el.style.cssText = 'position:fixed;bottom:80px;right:12px;background:#1a2f1a;color:#34d399;font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid #34d39944;z-index:9999;transition:opacity 0.5s';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.opacity = '0'; }, 2500);
+}
+
 // ===== INIT =====
 async function init() {
   await initDB();
   await seedDemoData();
+
+  // Cargar desde servidor si hay datos más recientes
+  const hayDatosNuevos = await cargarDesdeServidor();
+  // Si no había datos en servidor, subir los locales
+  if (!hayDatosNuevos) {
+    const meds = await getMedicamentos();
+    if (meds.length > 0 && !localStorage.getItem(SYNC_TS_KEY)) {
+      await guardarEnServidor();
+    }
+  }
+
   await cargarDatos();
-  await registrarServiceWorker(); // Service Worker para iOS
+  await registrarServiceWorker();
   await pedirPermisoNotificaciones();
-  iniciarFCM(); // Firebase Cloud Messaging — push aunque app esté cerrada
+  iniciarFCM();
   renderNav();
   renderPaginaHoy();
   actualizarClock();
   setInterval(actualizarClock, 60000);
   setInterval(async () => {
-    // Re-render cada minuto por si cambia el estado de las tomas
     if (state.paginaActual === 'hoy') {
       await cargarDatos();
       renderPaginaHoy();
     }
   }, 60000);
+  // Comprobar cambios remotos cada 2 minutos
+  setInterval(async () => {
+    const actualizado = await cargarDesdeServidor();
+    if (actualizado) {
+      await cargarDatos();
+      if (state.paginaActual === 'hoy') renderPaginaHoy();
+      else if (state.paginaActual === 'pastillas') renderPaginaPastillas();
+      else if (state.paginaActual === 'alarmas') renderPaginaAlarmas();
+      mostrarIndicadorSync('🔄 Actualizado desde otro dispositivo');
+    }
+  }, 2 * 60 * 1000);
 }
 
 async function cargarDatos() {
@@ -60,8 +142,6 @@ async function cargarDatos() {
   state.tomas = await getTomas();
   state.registros = await getRegistrosByFecha(state.fechaActual);
   programarAlarmasHoy(state.tomas, state.medicamentos);
-  // Sincronizar horarios reales al servidor para que el cron funcione con app cerrada
-  sincronizarHorariosServidor(state.tomas, state.medicamentos);
 }
 
 // ===== NAVEGACIÓN =====
@@ -514,6 +594,7 @@ window.restablecerDatosReales = async function() {
   await seedDemoData();
   await cargarDatos();
   await renderPaginaPastillas();
+  guardarEnServidor();
   mostrarToast('✅ Medicamentos restablecidos a la configuración original');
 };
 
@@ -636,7 +717,7 @@ window.cambiarHoraSlot = async function(horaOriginal, horaNueva, inputEl) {
   await cargarDatos();
   await renderPaginaAlarmas();
   await programarAlarmasHoy(state.tomas, state.medicamentos);
-  sincronizarHorariosServidor(state.tomas, state.medicamentos);
+  guardarEnServidor();
 };
 
 window.toggleHora = async function(hora) {
@@ -863,6 +944,7 @@ window.guardarMed = async function() {
   cerrarModal();
   await cargarDatos();
   await renderPaginaPastillas();
+  guardarEnServidor();
   mostrarToast(`✓ ${nombre} guardado`);
 };
 
@@ -888,6 +970,7 @@ window.borrarMed = async function(id) {
   cerrarModal();
   await cargarDatos();
   await renderPaginaPastillas();
+  guardarEnServidor();
   mostrarToast(`🗑️ ${med?.nombre} eliminado`);
 };
 
