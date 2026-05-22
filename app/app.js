@@ -30,8 +30,9 @@ let state = {
   registros: [],
   fechaActual: fechaHoy(),
   paginaActual: 'hoy',
-  editandoMed: null,     // ID del medicamento en edición
-  horariosNuevoMed: [],  // horarios temp mientras crea pastilla
+  editandoMed: null,
+  horariosNuevoMed: [],
+  infoData: { comidas: [], habitos: [] },
 };
 
 // ===== SYNC CON SERVIDOR (Firestore como fuente de verdad) =====
@@ -152,6 +153,7 @@ function renderNav() {
     { id: 'historial', icon: '📅', label: 'Historial' },
     { id: 'pastillas', icon: '⚙️', label: 'Pastillas' },
     { id: 'alarmas',   icon: '🔔', label: 'Alarmas' },
+    { id: 'info',      icon: '📖', label: 'Guía' },
   ];
 
   nav.innerHTML = items.map(it => `
@@ -174,6 +176,7 @@ window.navegarA = async function(pagina) {
     case 'historial': renderPaginaHistorial(); break;
     case 'pastillas': renderPaginaPastillas(); break;
     case 'alarmas':   renderPaginaAlarmas();   break;
+    case 'info':      renderPaginaInfo();      break;
   }
   document.getElementById(`page-${pagina}`).classList.add('active');
   window.scrollTo(0, 0);
@@ -987,6 +990,150 @@ function setupModalOverlay() {
     });
   }
 }
+
+// ===== PÁGINA INFO =====
+function esc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function cargarInfo() {
+  try {
+    const res = await fetch('/api/push?info=1');
+    if (!res.ok) return;
+    const { info } = await res.json();
+    if (info) state.infoData = { comidas: info.comidas || [], habitos: info.habitos || [] };
+  } catch {}
+}
+
+async function guardarInfo() {
+  try {
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-info', ...state.infoData }),
+    });
+    mostrarIndicadorSync('✅ Sincronizado');
+  } catch {}
+}
+
+async function renderPaginaInfo() {
+  const page = document.getElementById('page-info');
+  await cargarInfo();
+  const { comidas, habitos } = state.infoData;
+
+  let html = `
+    <div class="app-header">
+      <div class="header-left">
+        <div class="greeting">Información</div>
+        <div class="title">Guía 📖</div>
+        <div class="subtitle">Uso de la app y cuidados</div>
+      </div>
+    </div>
+    <div class="content">
+  `;
+
+  // ---- TUTORIAL ----
+  html += `<div class="section-label">Cómo usar la app</div>
+    <div style="background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;margin-bottom:16px">
+  `;
+  const pasos = [
+    ['💊', 'Marcar pastillas', 'En "Hoy" toca cada pastilla para marcarla como tomada. O toca el botón de abajo para marcar toda una toma de golpe.'],
+    ['🔔', 'Activar alarmas', 'En "Alarmas" debe aparecer ✅ Alarmas activadas. Si no, toca el banner. Las alarmas llegan aunque el iPhone esté bloqueado.'],
+    ['⚙️', 'Cambiar horarios', 'En "Alarmas" toca la hora de cada toma para cambiarla. Se guarda y sincroniza a todos los móviles.'],
+    ['➕', 'Añadir pastilla nueva', 'En "Pastillas" toca el botón + abajo a la derecha. Rellena nombre, dosis y añade las horas.'],
+    ['✏️', 'Editar o borrar pastilla', 'En "Pastillas" usa los botones ✏️ (editar) y 🗑️ (borrar) que hay a la derecha de cada medicamento.'],
+    ['🔄', 'Volver al horario original', 'En "Pastillas" baja al final y toca "🔄 Restablecer medicamentos originales". Vuelve al horario completo del trasplante.'],
+    ['📱', 'Sincronización automática', 'Los cambios se sincronizan entre todos los móviles solos en menos de 2 minutos.'],
+    ['🔧', 'Las alarmas no llegan', 'Ve a "Alarmas" y toca "🔧 Reparar notificaciones de este iPhone". Luego prueba con "🔔 Probar notificación ahora".'],
+  ];
+  pasos.forEach(([icon, titulo, desc]) => {
+    html += `<div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <span style="font-size:18px">${icon}</span>
+        <span style="font-weight:700;font-size:14px;color:var(--text)">${titulo}</span>
+      </div>
+      <p style="font-size:13px;color:var(--text2);margin:0;padding-left:28px;line-height:1.5">${desc}</p>
+    </div>`;
+  });
+  html += `</div>`;
+
+  // ---- COMIDAS PROHIBIDAS ----
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <div class="section-label" style="margin:0">🚫 Comidas prohibidas</div>
+    <button onclick="anadirItem('comidas')" style="background:var(--primary);color:#000;border:none;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer">+ Añadir</button>
+  </div>
+  <div style="background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;margin-bottom:16px">`;
+  if (comidas.length === 0) {
+    html += `<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">Sin comidas registradas — toca + para añadir</div>`;
+  } else {
+    comidas.forEach((item, i) => {
+      html += `<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:16px">🚫</span>
+        <span style="flex:1;font-size:14px;color:var(--text)">${esc(item)}</span>
+        <button onclick="borrarItem('comidas',${i})" style="background:none;border:none;color:var(--danger);font-size:18px;cursor:pointer;padding:0 4px">×</button>
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  // ---- HÁBITOS ----
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <div class="section-label" style="margin:0">✅ Hábitos y cuidados</div>
+    <button onclick="anadirItem('habitos')" style="background:var(--primary);color:#000;border:none;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer">+ Añadir</button>
+  </div>
+  <div style="background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;margin-bottom:32px">`;
+  if (habitos.length === 0) {
+    html += `<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">Sin hábitos registrados — toca + para añadir</div>`;
+  } else {
+    habitos.forEach((item, i) => {
+      html += `<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:16px">✅</span>
+        <span style="flex:1;font-size:14px;color:var(--text)">${esc(item)}</span>
+        <button onclick="borrarItem('habitos',${i})" style="background:none;border:none;color:var(--danger);font-size:18px;cursor:pointer;padding:0 4px">×</button>
+      </div>`;
+    });
+  }
+  html += `</div></div>`;
+
+  page.innerHTML = html;
+}
+
+window.anadirItem = function(tipo) {
+  const overlay = document.getElementById('modal-overlay');
+  document.getElementById('modal-content').innerHTML = `
+    <div class="modal">
+      <div class="modal-title">${tipo === 'comidas' ? '🚫 Nueva comida prohibida' : '✅ Nuevo hábito'}</div>
+      <div class="form-group">
+        <label class="form-label">${tipo === 'comidas' ? 'Describe la comida prohibida' : 'Describe el hábito o cuidado'}</label>
+        <input class="form-input" id="item-texto" placeholder="${tipo === 'comidas' ? 'Ej: Pomelo — interacciona con Prograf' : 'Ej: Evitar sol directo en cicatrices'}">
+      </div>
+      <div class="modal-btns">
+        <button class="btn-secondary" onclick="cerrarModal()">Cancelar</button>
+        <button class="btn-primary" onclick="confirmarAnadirItem('${tipo}')">Añadir</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+  setTimeout(() => document.getElementById('item-texto')?.focus(), 100);
+};
+
+window.confirmarAnadirItem = async function(tipo) {
+  const el = document.getElementById('item-texto');
+  const texto = el?.value.trim();
+  if (!texto) { mostrarToast('Escribe algo primero'); return; }
+  state.infoData[tipo].push(texto);
+  cerrarModal();
+  await guardarInfo();
+  await renderPaginaInfo();
+  mostrarToast('✓ Añadido');
+};
+
+window.borrarItem = async function(tipo, indice) {
+  state.infoData[tipo].splice(indice, 1);
+  await guardarInfo();
+  await renderPaginaInfo();
+  mostrarToast('🗑️ Eliminado');
+};
 
 // ===== TOAST =====
 let toastTimer = null;

@@ -157,6 +157,14 @@ export default async function handler(req, res) {
     });
   }
 
+  // GET — leer comidas y hábitos (?info=1)
+  if (req.method === 'GET' && req.query?.info === '1') {
+    const db = getDB();
+    const doc = await db.collection('config').doc('info').get();
+    if (!doc.exists) return res.status(200).json({ ok: true, info: null });
+    return res.status(200).json({ ok: true, info: doc.data() });
+  }
+
   // GET — leer schedule sincronizado (?schedule=1)
   if (req.method === 'GET' && req.query?.schedule === '1') {
     const db = getDB();
@@ -311,6 +319,14 @@ export default async function handler(req, res) {
       }
 
       return res.status(200).json({ ok: true, hora, enviados: totalEnviados, total: snap.size });
+    }
+
+    // Guardar comidas prohibidas y hábitos
+    if (action === 'save-info') {
+      const { comidas = [], habitos = [] } = req.body || {};
+      const db = getDB();
+      await db.collection('config').doc('info').set({ comidas, habitos, updatedAt: Date.now() });
+      return res.status(200).json({ ok: true });
     }
 
     // Guardar schedule completo (medicamentos + tomas) — fuente de verdad compartida entre dispositivos
