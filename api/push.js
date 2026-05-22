@@ -100,6 +100,8 @@ export default async function handler(req, res) {
   if (req.method === 'GET' && req.query?.diag === '1') {
     const db = getDB();
     const snap = await db.collection('suscripciones').get();
+    const pubDecoded = VAPID_PUBLIC ? Buffer.from(VAPID_PUBLIC, 'base64').length : 0;
+    const pubDecodedUrl = VAPID_PUBLIC ? Buffer.from(VAPID_PUBLIC, 'base64url').length : 0;
     return res.status(200).json({
       vapid_public_set: !!VAPID_PUBLIC,
       vapid_private_set: !!VAPID_PRIVATE,
@@ -107,6 +109,8 @@ export default async function handler(req, res) {
       vapid_public_prefix: VAPID_PUBLIC ? VAPID_PUBLIC.slice(0, 12) + '...' : 'NO CONFIGURADA',
       expected_prefix: 'BCNgbW2waCXE',
       keys_match: VAPID_PUBLIC ? VAPID_PUBLIC.startsWith('BCNgbW2waCXE') : false,
+      vapid_decoded_base64: pubDecoded,
+      vapid_decoded_base64url: pubDecodedUrl,
       subscriptions: snap.size,
     });
   }
