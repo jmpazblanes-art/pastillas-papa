@@ -282,6 +282,31 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    // Debug push — devuelve error completo de Apple sin borrar suscripciones
+    if (action === 'debug-push') {
+      const db = getDB();
+      const snap = await db.collection('suscripciones').get();
+      if (snap.empty) return res.status(200).json({ ok: false, msg: 'Sin suscripciones en Firestore' });
+
+      const results = [];
+      for (const doc of snap.docs) {
+        try {
+          await enviarPush(doc.data().subscription, '🔔 Debug push', 'Si ves esto, el push funciona ✅');
+          results.push({ id: doc.id, ok: true });
+        } catch (e) {
+          results.push({
+            id: doc.id,
+            ok: false,
+            status: e?.statusCode,
+            message: e?.message,
+            body: e?.body,
+            endpoint: doc.data().subscription?.endpoint ? new URL(doc.data().subscription.endpoint).host : 'unknown',
+          });
+        }
+      }
+      return res.status(200).json({ results });
+    }
+
     // Push de prueba
     if (action === 'test') {
       if (!subscription) return res.status(400).json({ error: 'Suscripción requerida' });
