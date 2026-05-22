@@ -236,7 +236,11 @@ export default async function handler(req, res) {
           ))
         );
         for (let i = 0; i < results.length; i++) {
-          if (results[i].status === 'rejected') await snap.docs[i].ref.delete();
+          if (results[i].status === 'rejected') {
+            const err = results[i].reason;
+            console.error(`PUSH_FAIL sub=${snap.docs[i].id} status=${err?.statusCode} msg=${err?.message} body=${err?.body}`);
+            await snap.docs[i].ref.delete();
+          }
         }
         totalEnviados += results.filter(r => r.status === 'fulfilled').length;
         if (alarma.claveDisparo) disparadasUpdate[`disparadas.${alarma.claveDisparo}`] = true;
@@ -246,7 +250,7 @@ export default async function handler(req, res) {
         await db.collection('config').doc('horarios').set(disparadasUpdate, { merge: true });
       }
 
-      return res.status(200).json({ ok: true, hora, enviados: totalEnviados });
+      return res.status(200).json({ ok: true, hora, enviados: totalEnviados, total: snap.size });
     }
 
     // Sincronizar horarios reales del usuario
