@@ -139,7 +139,9 @@ export default async function handler(req, res) {
       const disparadas = horariosDoc.exists ? (horariosDoc.data()?.disparadas || {}) : {};
 
       for (const h of ventana) {
-        const alarma = horariosUsuario[h] || HORARIOS_DEFAULT[h] || null;
+        // HORARIOS_DEFAULT tiene prioridad: usa siempre el contenido del hospital.
+        // horariosUsuario solo se usa para horas que el usuario haya añadido fuera del horario oficial.
+        const alarma = HORARIOS_DEFAULT[h] || horariosUsuario[h] || null;
         if (!alarma) continue;
         // Evitar mandar la misma alarma dos veces en la misma ventana
         const hoy = new Date().toISOString().slice(0, 10);
@@ -235,7 +237,7 @@ export default async function handler(req, res) {
 
       const alarmasAEnviar = [];
       for (const h of ventana) {
-        const alarma = horariosUsuario[h] || HORARIOS_DEFAULT[h] || null;
+        const alarma = HORARIOS_DEFAULT[h] || horariosUsuario[h] || null;
         if (!alarma) continue;
         const hoy = new Date().toISOString().slice(0, 10);
         const claveDisparo = `${hoy}_${h}`;
