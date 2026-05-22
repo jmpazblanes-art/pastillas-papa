@@ -96,6 +96,21 @@ export default async function handler(req, res) {
     }
   }
 
+  // GET — diagnóstico rápido (?diag=1)
+  if (req.method === 'GET' && req.query?.diag === '1') {
+    const db = getDB();
+    const snap = await db.collection('suscripciones').get();
+    return res.status(200).json({
+      vapid_public_set: !!VAPID_PUBLIC,
+      vapid_private_set: !!VAPID_PRIVATE,
+      firebase_set: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+      vapid_public_prefix: VAPID_PUBLIC ? VAPID_PUBLIC.slice(0, 12) + '...' : 'NO CONFIGURADA',
+      expected_prefix: 'BCNgbW2waCXE',
+      keys_match: VAPID_PUBLIC ? VAPID_PUBLIC.startsWith('BCNgbW2waCXE') : false,
+      subscriptions: snap.size,
+    });
+  }
+
   // GET — cron cada minuto (o ?force=1 para probar)
   if (req.method === 'GET') {
     const hora = horaEspana();
