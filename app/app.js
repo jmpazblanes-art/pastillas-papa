@@ -83,6 +83,42 @@ async function guardarEnServidor() {
   }
 }
 
+async function guardarRegistrosEnServidor(fecha) {
+  try {
+    const todos = await getAllRegistros();
+    const delDia = todos.filter(r => r.fecha === fecha);
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-registros', fecha, registros: delDia }),
+    });
+  } catch (e) {
+    console.warn('Error al guardar registros en servidor:', e);
+  }
+}
+
+async function cargarRegistrosDesdeServidor(fecha) {
+  try {
+    const res = await fetch(`/api/push?registros=${fecha}`);
+    if (!res.ok) return false;
+    const { registros } = await res.json();
+    if (!Array.isArray(registros) || registros.length === 0) return false;
+
+    // Borrar registros locales del día y reemplazar con los del servidor
+    const locales = await getAllRegistros();
+    const delDia = locales.filter(r => r.fecha === fecha);
+    for (const r of delDia) await deleteRegistro(r.id);
+    for (const r of registros) {
+      const { id, ...sinId } = r;
+      await addRegistro(sinId);
+    }
+    return true;
+  } catch (e) {
+    console.warn('Error al cargar registros desde servidor:', e);
+    return false;
+  }
+}
+
 function mostrarIndicadorSync(msg) {
   let el = document.getElementById('sync-indicator');
   if (!el) {
@@ -112,7 +148,7 @@ async function init() {
     }
   }
 
-  await cargarDatos();
+  await cargarDatos({ sincRegistros: true });
   await registrarServiceWorker();
   await pedirPermisoNotificaciones();
   iniciarFCM();
@@ -126,22 +162,21 @@ async function init() {
       renderPaginaHoy();
     }
   }, 60000);
-  // Comprobar cambios remotos cada 2 minutos
+  // Comprobar cambios remotos cada 2 minutos (schedule Y registros)
   setInterval(async () => {
-    const actualizado = await cargarDesdeServidor();
-    if (actualizado) {
-      await cargarDatos();
-      if (state.paginaActual === 'hoy') renderPaginaHoy();
-      else if (state.paginaActual === 'pastillas') renderPaginaPastillas();
-      else if (state.paginaActual === 'alarmas') renderPaginaAlarmas();
-      mostrarIndicadorSync('🔄 Actualizado desde otro dispositivo');
-    }
+    const actualizadoSchedule = await cargarDesdeServidor();
+    await cargarDatos({ sincRegistros: true });
+    if (state.paginaActual === 'hoy') renderPaginaHoy();
+    else if (state.paginaActual === 'pastillas') renderPaginaPastillas();
+    else if (state.paginaActual === 'alarmas') renderPaginaAlarmas();
+    if (actualizadoSchedule) mostrarIndicadorSync('🔄 Actualizado desde otro dispositivo');
   }, 2 * 60 * 1000);
 }
 
-async function cargarDatos() {
+async function cargarDatos({ sincRegistros = false } = {}) {
   state.medicamentos = await getMedicamentos();
   state.tomas = await getTomas();
+  if (sincRegistros) await cargarRegistrosDesdeServidor(state.fechaActual);
   state.registros = await getRegistrosByFecha(state.fechaActual);
   programarAlarmasHoy(state.tomas, state.medicamentos);
 }
@@ -405,6 +440,7 @@ window.toggleToma = async function(tomaId, medId, hora, registroId) {
     reproducirSonidoAlarma();
     mostrarToast('✓ ¡Pastilla tomada!');
   }
+  await guardarRegistrosEnServidor(state.fechaActual);
   await cargarDatos();
   renderPaginaHoy();
 };
@@ -427,6 +463,7 @@ window.marcarTomaCompleta = async function(hora, yaCompleta) {
   }
   reproducirSonidoAlarma();
   mostrarToast(`✓ Toma de las ${hora} completada`);
+  await guardarRegistrosEnServidor(state.fechaActual);
   await cargarDatos();
   renderPaginaHoy();
 };

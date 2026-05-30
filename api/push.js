@@ -158,6 +158,15 @@ export default async function handler(req, res) {
     });
   }
 
+  // GET — leer registros del día (?registros=YYYY-MM-DD)
+  if (req.method === 'GET' && req.query?.registros) {
+    const fecha = req.query.registros;
+    const db = getDB();
+    const doc = await db.collection('registros').doc(fecha).get();
+    if (!doc.exists) return res.status(200).json({ ok: true, registros: [] });
+    return res.status(200).json({ ok: true, registros: doc.data().registros || [] });
+  }
+
   // GET — leer comidas y hábitos (?info=1)
   if (req.method === 'GET' && req.query?.info === '1') {
     const db = getDB();
@@ -320,6 +329,17 @@ export default async function handler(req, res) {
       }
 
       return res.status(200).json({ ok: true, hora, enviados: totalEnviados, total: snap.size });
+    }
+
+    // Guardar registros del día (qué tomas se han marcado como tomadas)
+    if (action === 'save-registros') {
+      const { fecha, registros } = req.body || {};
+      if (!fecha || !Array.isArray(registros)) {
+        return res.status(400).json({ error: 'fecha y registros son obligatorios' });
+      }
+      const db = getDB();
+      await db.collection('registros').doc(fecha).set({ registros, updatedAt: Date.now() });
+      return res.status(200).json({ ok: true });
     }
 
     // Guardar comidas prohibidas y hábitos
