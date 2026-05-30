@@ -32,6 +32,7 @@ let state = {
   paginaActual: 'hoy',
   editandoMed: null,
   horariosNuevoMed: [],
+  diasNuevoMed: [],
   infoData: { comidas: [], habitos: [] },
 };
 
@@ -189,15 +190,20 @@ function renderPaginaHoy() {
   const { medicamentos, tomas, registros } = state;
 
   // Calcular progreso total
-  const totalTomas = tomas.filter(t => t.activa).length;
+  const diaHoyInit = new Date(hoy + 'T12:00:00').getDay();
+  const diaISOInit = diaHoyInit === 0 ? 7 : diaHoyInit;
+  const totalTomas = tomas.filter(t => t.activa && (!t.dias_semana || t.dias_semana.length === 0 || t.dias_semana.includes(diaISOInit))).length;
   const tomadasIds = new Set(registros.filter(r => r.tomada).map(r => r.toma_id));
   const totalTomadas = tomadasIds.size;
   const pct = porcentaje(totalTomadas, totalTomas);
 
   // Agrupar tomas por hora
   const grupos = {};
+  const diaHoy = new Date(hoy + 'T12:00:00').getDay(); // 0=dom,1=lun...
+  const diaISO = diaHoy === 0 ? 7 : diaHoy; // convertir a ISO: 1=lun...7=dom
   for (const toma of tomas) {
     if (!toma.activa) continue;
+    if (toma.dias_semana && toma.dias_semana.length > 0 && !toma.dias_semana.includes(diaISO)) continue;
     if (!grupos[toma.hora]) grupos[toma.hora] = [];
     grupos[toma.hora].push(toma);
   }
@@ -800,6 +806,7 @@ window.repararNotificaciones = async function() {
 window.abrirNuevoMed = function() {
   state.editandoMed = null;
   state.horariosNuevoMed = [];
+  state.diasNuevoMed = [];
   abrirModalMed();
 };
 
@@ -808,6 +815,7 @@ window.abrirEditarMed = function(id) {
   const med = state.medicamentos.find(m => m.id === id);
   const tomasMed = state.tomas.filter(t => t.medicamento_id === id && t.activa);
   state.horariosNuevoMed = tomasMed.map(t => ({ id: t.id, hora: t.hora }));
+  state.diasNuevoMed = tomasMed.length > 0 && tomasMed[0].dias_semana ? [...tomasMed[0].dias_semana] : [];
   abrirModalMed(med);
 };
 
@@ -867,6 +875,14 @@ function abrirModalMed(med = null) {
         </div>
       </div>
 
+      <div class="form-group">
+        <label class="form-label">Días de toma</label>
+        <div id="dias-selector" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          <button type="button" id="dias-todos" onclick="toggleTodosDias()" style="border-radius:20px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid var(--primary);background:var(--primary);color:#000">Todos</button>
+          ${['L','M','X','J','V','S','D'].map((d,i) => `<button type="button" class="dia-btn" data-dia="${i+1}" onclick="toggleDia(${i+1})" style="border-radius:20px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid var(--border);background:transparent;color:var(--text3)">${d}</button>`).join('')}
+        </div>
+      </div>
+
       <div class="modal-btns">
         <button class="btn-secondary" onclick="cerrarModal()">Cancelar</button>
         <button class="btn-primary" onclick="guardarMed()">
@@ -877,6 +893,7 @@ function abrirModalMed(med = null) {
   `;
 
   overlay.classList.add('visible');
+  setTimeout(() => sincronizarBotonesDias(), 50);
 }
 
 function renderHorariosTags() {
@@ -887,6 +904,34 @@ function renderHorariosTags() {
     </span>
   `).join('');
 }
+
+function sincronizarBotonesDias() {
+  const todosDias = state.diasNuevoMed.length === 0;
+  const btnTodos = document.getElementById('dias-todos');
+  if (!btnTodos) return;
+  btnTodos.style.background = todosDias ? 'var(--primary)' : 'transparent';
+  btnTodos.style.color = todosDias ? '#000' : 'var(--text3)';
+  btnTodos.style.borderColor = todosDias ? 'var(--primary)' : 'var(--border)';
+  document.querySelectorAll('.dia-btn').forEach(btn => {
+    const dia = parseInt(btn.dataset.dia);
+    const activo = state.diasNuevoMed.includes(dia);
+    btn.style.background = activo ? 'var(--primary)' : 'transparent';
+    btn.style.color = activo ? '#000' : 'var(--text3)';
+    btn.style.borderColor = activo ? 'var(--primary)' : 'var(--border)';
+  });
+}
+
+window.toggleTodosDias = function() {
+  state.diasNuevoMed = [];
+  sincronizarBotonesDias();
+};
+
+window.toggleDia = function(dia) {
+  const idx = state.diasNuevoMed.indexOf(dia);
+  if (idx === -1) state.diasNuevoMed.push(dia);
+  else state.diasNuevoMed.splice(idx, 1);
+  sincronizarBotonesDias();
+};
 
 window.seleccionarColor = function(color) {
   document.querySelectorAll('.color-opt').forEach(el => {
@@ -940,7 +985,7 @@ window.guardarMed = async function() {
   // Añadir tomas nuevas
   for (const h of state.horariosNuevoMed) {
     if (!h.id) { // solo si es nueva
-      await addToma({ medicamento_id: medData.id, hora: h.hora, activa: true });
+      await addToma({ medicamento_id: medData.id, hora: h.hora, activa: true, dias_semana: state.diasNuevoMed.length > 0 ? [...state.diasNuevoMed] : null });
     }
   }
 
