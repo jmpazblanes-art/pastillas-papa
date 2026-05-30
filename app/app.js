@@ -1083,6 +1083,7 @@ async function renderPaginaCuidados() {
       html += `<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
         <span style="font-size:16px">🚫</span>
         <span style="flex:1;font-size:14px;color:var(--text)">${esc(item)}</span>
+        <button onclick="editarItem('comidas',${i})" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px">✏️</button>
         <button onclick="borrarItem('comidas',${i})" style="background:none;border:none;color:var(--danger);font-size:18px;cursor:pointer;padding:0 4px">×</button>
       </div>`;
     });
@@ -1102,6 +1103,7 @@ async function renderPaginaCuidados() {
       html += `<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
         <span style="font-size:16px">✅</span>
         <span style="flex:1;font-size:14px;color:var(--text)">${esc(item)}</span>
+        <button onclick="editarItem('habitos',${i})" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px">✏️</button>
         <button onclick="borrarItem('habitos',${i})" style="background:none;border:none;color:var(--danger);font-size:18px;cursor:pointer;padding:0 4px">×</button>
       </div>`;
     });
@@ -1141,10 +1143,44 @@ window.confirmarAnadirItem = async function(tipo) {
   mostrarToast('✓ Añadido');
 };
 
+window.editarItem = function(tipo, indice) {
+  const textoActual = state.infoData[tipo][indice];
+  const overlay = document.getElementById('modal-overlay');
+  document.getElementById('modal-content').innerHTML = `
+    <div class="modal">
+      <div class="modal-title">${tipo === 'comidas' ? '🚫 Editar comida prohibida' : '✅ Editar hábito'}</div>
+      <div class="form-group">
+        <label class="form-label">${tipo === 'comidas' ? 'Describe la comida prohibida' : 'Describe el hábito o cuidado'}</label>
+        <input class="form-input" id="item-texto" value="${esc(textoActual)}">
+      </div>
+      <div class="modal-btns">
+        <button class="btn-secondary" onclick="cerrarModal()">Cancelar</button>
+        <button class="btn-primary" onclick="confirmarEditarItem('${tipo}',${indice})">Guardar</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+  setTimeout(() => {
+    const input = document.getElementById('item-texto');
+    if (input) { input.focus(); input.select(); }
+  }, 100);
+};
+
+window.confirmarEditarItem = async function(tipo, indice) {
+  const el = document.getElementById('item-texto');
+  const texto = el?.value.trim();
+  if (!texto) { mostrarToast('Escribe algo primero'); return; }
+  state.infoData[tipo][indice] = texto;
+  cerrarModal();
+  await guardarInfo();
+  await renderPaginaCuidados();
+  mostrarToast('✓ Guardado');
+};
+
 window.borrarItem = async function(tipo, indice) {
   state.infoData[tipo].splice(indice, 1);
   await guardarInfo();
-  await renderPaginaInfo();
+  await renderPaginaCuidados();
   mostrarToast('🗑️ Eliminado');
 };
 
