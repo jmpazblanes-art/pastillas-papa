@@ -601,7 +601,7 @@ async function renderPaginaPastillas() {
           <div class="med-dosis">${med.dosis}${med.indicaciones ? ' · ' + med.indicaciones : ''}</div>
           <span class="med-cat" style="background:${color}22;color:${color}">${med.categoria || 'Medicamento'}</span>
           ${med.notas ? `<div class="med-notas">${med.notas}</div>` : ''}
-          ${horariosMed ? `<div class="med-horarios">🕐 ${horariosMed}</div>` : '<div class="med-horarios" style="color:var(--danger)">⚠️ Sin horario asignado</div>'}
+          ${horariosMed ? `<div class="med-horarios">🕐 ${horariosMed}${tomasMed[0]?.dias_semana?.length > 0 ? ` · <span style="opacity:0.75">${etiquetaDias(tomasMed[0].dias_semana)}</span>` : ''}</div>` : '<div class="med-horarios" style="color:var(--danger)">⚠️ Sin horario asignado</div>'}
         </div>
         <div class="med-actions">
           <button class="btn-icon" onclick="abrirEditarMed(${med.id})" title="Editar">✏️</button>
@@ -643,6 +643,12 @@ window.restablecerDatosReales = async function() {
   guardarEnServidor();
   mostrarToast('✅ Medicamentos restablecidos a la configuración original');
 };
+
+function etiquetaDias(dias_semana) {
+  if (!dias_semana || dias_semana.length === 0) return '';
+  const nombres = ['', 'L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  return dias_semana.slice().sort((a,b) => a-b).map(d => nombres[d]).join(' ');
+}
 
 // ===== PÁGINA ALARMAS =====
 async function renderPaginaAlarmas() {
@@ -734,7 +740,10 @@ async function renderPaginaAlarmas() {
           <div class="toggle ${activas.length > 0 ? 'on' : ''}" onclick="toggleHora('${hora}')"></div>
         </div>
         <div class="alarma-meds-list">
-          ${items.map(t => `<span class="alarma-med-chip" style="background:${colorCategoria(t.med.categoria)}22;color:${colorCategoria(t.med.categoria)}">${iconoCategoria(t.med.categoria)} ${t.med.nombre}</span>`).join('')}
+          ${items.map(t => {
+            const etDias = etiquetaDias(t.dias_semana);
+            return `<span class="alarma-med-chip" style="background:${colorCategoria(t.med.categoria)}22;color:${colorCategoria(t.med.categoria)}">${iconoCategoria(t.med.categoria)} ${t.med.nombre}${etDias ? `<span style="margin-left:5px;font-size:10px;opacity:0.8">${etDias}</span>` : ''}</span>`;
+          }).join('')}
         </div>
       </div>
     `;
