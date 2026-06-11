@@ -6,6 +6,7 @@
 
 // Clave pública VAPID (la privada solo está en el servidor)
 const VAPID_PUBLIC_KEY = 'BCNgbW2waCXEtCaJfSohMJ07anmJpVnXnwfwtU8uqU6kU0LNQ_Lz4o0nsSSxhcTjqJviPkW9uynNVZ5bjv7_-8M';
+const PUSH_CLIENT_VERSION = '2026-05-22-1';
 
 export async function pedirPermisoNotificaciones() {
   if (!('Notification' in window)) return false;
@@ -43,14 +44,22 @@ export async function suscribirWebPush() {
     const swReg = await navigator.serviceWorker.ready;
     const suscripcionExistente = await swReg.pushManager.getSubscription();
     if (suscripcionExistente) {
-      localStorage.setItem('push_subscription', JSON.stringify(suscripcionExistente));
-      // Siempre re-registrar en Firestore por si se perdió
-      await fetch('/api/push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'subscribe', subscription: suscripcionExistente }),
-      }).catch(() => {});
-      return suscripcionExistente;
+      const versionRegistrada = localStorage.getItem('push_client_version');
+      if (versionRegistrada !== PUSH_CLIENT_VERSION) {
+        await suscripcionExistente.unsubscribe().catch(() => {});
+        localStorage.removeItem('push_subscription');
+      } else {
+        localStorage.setItem('push_subscription', JSON.stringify(suscripcionExistente));
+        // Siempre re-registrar en Firestore por si se perdió
+        const res = await fetch('/api/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'subscribe', subscription: suscripcionExistente }),
+        });
+        if (!res.ok) throw new Error(`Servidor push respondió ${res.status}`);
+        localStorage.setItem('push_client_version', PUSH_CLIENT_VERSION);
+        return suscripcionExistente;
+      }
     }
 
     // Crear nueva suscripción
@@ -62,12 +71,14 @@ export async function suscribirWebPush() {
     localStorage.setItem('push_subscription', JSON.stringify(suscripcion));
 
     // Registrar en el servidor (para que Vercel pueda mandarle push)
-    await fetch('/api/push', {
+    const res = await fetch('/api/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'subscribe', subscription: suscripcion }),
-    }).catch(() => {}); // No crítico si falla
+    });
+    if (!res.ok) throw new Error(`Servidor push respondió ${res.status}`);
 
+    localStorage.setItem('push_client_version', PUSH_CLIENT_VERSION);
     console.log('Web Push suscrito ✅');
     return suscripcion;
 
@@ -75,6 +86,48 @@ export async function suscribirWebPush() {
     console.warn('Error al suscribir Web Push:', e);
     return null;
   }
+}
+
+export async function resetearWebPush() {
+  if (!tienePermiso()) return null;
+  if (!('PushManager' in window)) return null;
+
+  try {
+    const swReg = await navigator.serviceWorker.ready;
+    const suscripcionExistente = await swReg.pushManager.getSubscription();
+    if (suscripcionExistente) {
+      await suscripcionExistente.unsubscribe().catch(() => {});
+    }
+    localStorage.removeItem('push_subscription');
+    return await suscribirWebPush();
+  } catch (e) {
+    console.warn('Error al reparar Web Push:', e);
+    return null;
+  }
+}
+
+export async function diagnosticoWebPush() {
+  const estado = {
+    permiso: 'Notification' in window ? Notification.permission : 'no disponible',
+    pwa: window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches,
+    serviceWorker: 'serviceWorker' in navigator,
+    pushManager: 'PushManager' in window,
+    suscripcion: false,
+    endpoint: '',
+  };
+
+  if (!estado.serviceWorker || !estado.pushManager) return estado;
+
+  try {
+    const swReg = await navigator.serviceWorker.ready;
+    const sub = await swReg.pushManager.getSubscription();
+    estado.suscripcion = Boolean(sub);
+    estado.endpoint = sub?.endpoint ? new URL(sub.endpoint).host : '';
+  } catch (e) {
+    estado.error = e.message || String(e);
+  }
+
+  return estado;
 }
 
 // Mandar push de prueba desde el servidor

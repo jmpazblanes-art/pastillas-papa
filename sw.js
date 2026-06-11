@@ -1,10 +1,10 @@
 /**
- * PastillasPapa — Service Worker v4
+ * PastillasPapa — Service Worker v6
  * Web Push estándar con VAPID — iOS 16.4+ con PWA instalada
  * Sin Firebase, sin Apple Developer, gratis
  */
 
-const CACHE_NAME = 'pastillas-papa-v4';
+const CACHE_NAME = 'pastillas-papa-v6';
 
 const STATIC_ASSETS = [
   '/app/styles.css',
@@ -53,16 +53,33 @@ self.addEventListener('push', event => {
 
   const titulo = data.titulo || '💊 Hora de las pastillas';
   const cuerpo = data.cuerpo || 'Es hora de tomar la medicación';
+  const tag = data.tag || `pastillas-push-${Date.now()}`;
+  const deliveryId = data.deliveryId || '';
 
   event.waitUntil(
-    self.registration.showNotification(titulo, {
-      body: cuerpo,
-      icon: '/app/icons/icon-192.svg',
-      badge: '/app/icons/icon-72.svg',
-      tag: 'pastillas-push',
-      requireInteraction: true,
-      vibrate: [200, 100, 200, 100, 200],
-    })
+    Promise.allSettled([
+      self.registration.showNotification(titulo, {
+        body: cuerpo,
+        icon: '/app/icons/icon-192.svg',
+        badge: '/app/icons/icon-72.svg',
+        tag,
+        requireInteraction: true,
+        renotify: true,
+        silent: false,
+        timestamp: data.timestamp || Date.now(),
+        vibrate: [200, 100, 200, 100, 200],
+      }),
+      deliveryId ? fetch('/api/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delivery-log',
+          deliveryId,
+          tag,
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {}) : Promise.resolve(),
+    ])
   );
 });
 

@@ -3,7 +3,7 @@
  */
 
 import {
-  initDB, seedDemoData, clearAllData,
+  initDB, seedDemoData, clearAllData, clearScheduleLocal,
   getMedicamentos, addMedicamento, updateMedicamento, deleteMedicamento,
   getTomas, addToma, updateToma, deleteToma,
   getRegistrosByFecha, addRegistro, deleteRegistro, getAllRegistros
@@ -12,7 +12,8 @@ import {
 import {
   pedirPermisoNotificaciones, tienePermiso,
   registrarServiceWorker, programarAlarmasHoy, proximaToma, reproducirSonidoAlarma,
-  mostrarNotificacion, iniciarFCM, probarPushFCM, sincronizarHorariosServidor
+  mostrarNotificacion, iniciarFCM, probarPushFCM, sincronizarHorariosServidor,
+  resetearWebPush, diagnosticoWebPush
 } from './alarmas.js';
 // firebase.js eliminado — usamos Web Push estándar sin Firebase
 
@@ -29,38 +30,155 @@ let state = {
   registros: [],
   fechaActual: fechaHoy(),
   paginaActual: 'hoy',
-  editandoMed: null,     // ID del medicamento en edición
-  horariosNuevoMed: [],  // horarios temp mientras crea pastilla
+  editandoMed: null,
+  horariosNuevoMed: [],
+  diasNuevoMed: [],
+  infoData: { comidas: [], habitos: [] },
 };
+
+// ===== SYNC CON SERVIDOR (Firestore como fuente de verdad) =====
+const SYNC_TS_KEY = 'schedule_server_ts';
+
+async function cargarDesdeServidor() {
+  try {
+    const res = await fetch('/api/push?schedule=1');
+    if (!res.ok) return false;
+    const { schedule } = await res.json();
+    if (!schedule || !Array.isArray(schedule.medicamentos)) return false;
+
+    const localTs = Number(localStorage.getItem(SYNC_TS_KEY) || 0);
+    if (schedule.updatedAt <= localTs) return false; // ya estamos al día
+
+    // Servidor tiene datos más recientes — reemplazar datos locales
+    await clearScheduleLocal();
+    for (const med of schedule.medicamentos) {
+      await updateMedicamento(med); // put() = upsert con ID fijo
+    }
+    for (const toma of schedule.tomas) {
+      await updateToma(toma); // put() = upsert con ID fijo
+    }
+    localStorage.setItem(SYNC_TS_KEY, String(schedule.updatedAt));
+    console.log(`Schedule cargado desde servidor (${schedule.medicamentos.length} meds, ${schedule.tomas.length} tomas)`);
+    return true;
+  } catch (e) {
+    console.warn('Error al cargar schedule desde servidor:', e);
+    return false;
+  }
+}
+
+async function guardarEnServidor() {
+  try {
+    const medicamentos = await getMedicamentos();
+    const tomas = await getTomas();
+    const updatedAt = Date.now();
+    localStorage.setItem(SYNC_TS_KEY, String(updatedAt));
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-schedule', medicamentos, tomas, updatedAt }),
+    });
+    mostrarIndicadorSync('✅ Sincronizado');
+  } catch (e) {
+    console.warn('Error al guardar schedule en servidor:', e);
+  }
+}
+
+async function guardarRegistrosEnServidor(fecha) {
+  try {
+    const todos = await getAllRegistros();
+    const delDia = todos.filter(r => r.fecha === fecha);
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-registros', fecha, registros: delDia }),
+    });
+  } catch (e) {
+    console.warn('Error al guardar registros en servidor:', e);
+  }
+}
+
+async function cargarRegistrosDesdeServidor(fecha) {
+  try {
+    const res = await fetch(`/api/push?registros=${fecha}`);
+    if (!res.ok) return false;
+    const { registros } = await res.json();
+    if (!Array.isArray(registros) || registros.length === 0) return false;
+
+    // Borrar registros locales del día y reemplazar con los del servidor
+    const locales = await getAllRegistros();
+    const delDia = locales.filter(r => r.fecha === fecha);
+    for (const r of delDia) await deleteRegistro(r.id);
+    for (const r of registros) {
+      const { id, ...sinId } = r;
+      await addRegistro(sinId);
+    }
+    return true;
+  } catch (e) {
+    console.warn('Error al cargar registros desde servidor:', e);
+    return false;
+  }
+}
+
+function mostrarIndicadorSync(msg) {
+  let el = document.getElementById('sync-indicator');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'sync-indicator';
+    el.style.cssText = 'position:fixed;bottom:80px;right:12px;background:#1a2f1a;color:#34d399;font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid #34d39944;z-index:9999;transition:opacity 0.5s';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.opacity = '0'; }, 2500);
+}
 
 // ===== INIT =====
 async function init() {
   await initDB();
   await seedDemoData();
-  await cargarDatos();
-  await registrarServiceWorker(); // Service Worker para iOS
+
+  // Cargar desde servidor si hay datos más recientes
+  const hayDatosNuevos = await cargarDesdeServidor();
+  // Si no había datos en servidor, subir los locales
+  if (!hayDatosNuevos) {
+    const meds = await getMedicamentos();
+    if (meds.length > 0 && !localStorage.getItem(SYNC_TS_KEY)) {
+      await guardarEnServidor();
+    }
+  }
+
+  await cargarDatos({ sincRegistros: true });
+  await registrarServiceWorker();
   await pedirPermisoNotificaciones();
-  iniciarFCM(); // Firebase Cloud Messaging — push aunque app esté cerrada
+  iniciarFCM();
   renderNav();
   renderPaginaHoy();
   actualizarClock();
   setInterval(actualizarClock, 60000);
   setInterval(async () => {
-    // Re-render cada minuto por si cambia el estado de las tomas
     if (state.paginaActual === 'hoy') {
       await cargarDatos();
       renderPaginaHoy();
     }
   }, 60000);
+  // Comprobar cambios remotos cada 2 minutos (schedule Y registros)
+  setInterval(async () => {
+    const actualizadoSchedule = await cargarDesdeServidor();
+    await cargarDatos({ sincRegistros: true });
+    if (state.paginaActual === 'hoy') renderPaginaHoy();
+    else if (state.paginaActual === 'pastillas') renderPaginaPastillas();
+    else if (state.paginaActual === 'alarmas') renderPaginaAlarmas();
+    if (actualizadoSchedule) mostrarIndicadorSync('🔄 Actualizado desde otro dispositivo');
+  }, 2 * 60 * 1000);
 }
 
-async function cargarDatos() {
+async function cargarDatos({ sincRegistros = false } = {}) {
   state.medicamentos = await getMedicamentos();
   state.tomas = await getTomas();
+  if (sincRegistros) await cargarRegistrosDesdeServidor(state.fechaActual);
   state.registros = await getRegistrosByFecha(state.fechaActual);
   programarAlarmasHoy(state.tomas, state.medicamentos);
-  // Sincronizar horarios reales al servidor para que el cron funcione con app cerrada
-  sincronizarHorariosServidor(state.tomas, state.medicamentos);
 }
 
 // ===== NAVEGACIÓN =====
@@ -68,9 +186,10 @@ function renderNav() {
   const nav = document.getElementById('bottom-nav');
   const items = [
     { id: 'hoy',      icon: '💊', label: 'Hoy' },
-    { id: 'historial', icon: '📅', label: 'Historial' },
     { id: 'pastillas', icon: '⚙️', label: 'Pastillas' },
     { id: 'alarmas',   icon: '🔔', label: 'Alarmas' },
+    { id: 'cuidados',  icon: '🥗', label: 'Cuidados' },
+    { id: 'info',      icon: '📖', label: 'Guía' },
   ];
 
   nav.innerHTML = items.map(it => `
@@ -89,10 +208,11 @@ window.navegarA = async function(pagina) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
 
   switch (pagina) {
-    case 'hoy':      renderPaginaHoy();      break;
-    case 'historial': renderPaginaHistorial(); break;
+    case 'hoy':       renderPaginaHoy();       break;
     case 'pastillas': renderPaginaPastillas(); break;
     case 'alarmas':   renderPaginaAlarmas();   break;
+    case 'cuidados':  renderPaginaCuidados();  break;
+    case 'info':      renderPaginaInfo();      break;
   }
   document.getElementById(`page-${pagina}`).classList.add('active');
   window.scrollTo(0, 0);
@@ -105,15 +225,20 @@ function renderPaginaHoy() {
   const { medicamentos, tomas, registros } = state;
 
   // Calcular progreso total
-  const totalTomas = tomas.filter(t => t.activa).length;
+  const diaHoyInit = new Date(hoy + 'T12:00:00').getDay();
+  const diaISOInit = diaHoyInit === 0 ? 7 : diaHoyInit;
+  const totalTomas = tomas.filter(t => t.activa && (!t.dias_semana || t.dias_semana.length === 0 || t.dias_semana.includes(diaISOInit))).length;
   const tomadasIds = new Set(registros.filter(r => r.tomada).map(r => r.toma_id));
   const totalTomadas = tomadasIds.size;
   const pct = porcentaje(totalTomadas, totalTomas);
 
   // Agrupar tomas por hora
   const grupos = {};
+  const diaHoy = new Date(hoy + 'T12:00:00').getDay(); // 0=dom,1=lun...
+  const diaISO = diaHoy === 0 ? 7 : diaHoy; // convertir a ISO: 1=lun...7=dom
   for (const toma of tomas) {
     if (!toma.activa) continue;
+    if (toma.dias_semana && toma.dias_semana.length > 0 && !toma.dias_semana.includes(diaISO)) continue;
     if (!grupos[toma.hora]) grupos[toma.hora] = [];
     grupos[toma.hora].push(toma);
   }
@@ -315,6 +440,7 @@ window.toggleToma = async function(tomaId, medId, hora, registroId) {
     reproducirSonidoAlarma();
     mostrarToast('✓ ¡Pastilla tomada!');
   }
+  await guardarRegistrosEnServidor(state.fechaActual);
   await cargarDatos();
   renderPaginaHoy();
 };
@@ -337,14 +463,27 @@ window.marcarTomaCompleta = async function(hora, yaCompleta) {
   }
   reproducirSonidoAlarma();
   mostrarToast(`✓ Toma de las ${hora} completada`);
+  await guardarRegistrosEnServidor(state.fechaActual);
   await cargarDatos();
   renderPaginaHoy();
 };
 
 window.solicitarPermisos = async function() {
   const ok = await pedirPermisoNotificaciones();
-  if (ok) mostrarToast('🔔 Alarmas activadas');
-  else mostrarToast('Sin permiso — actívalo en ajustes');
+  if (!ok) {
+    mostrarToast('Sin permiso — actívalo en ajustes');
+    await cargarDatos();
+    renderPaginaHoy();
+    return;
+  }
+
+  const suscripcion = await iniciarFCM();
+  if (suscripcion) {
+    mostrarToast('🔔 Alarmas activadas y registradas');
+  } else {
+    mostrarToast('Permiso OK, pero falta registrar el iPhone');
+  }
+
   await cargarDatos();
   renderPaginaHoy();
 };
@@ -462,7 +601,7 @@ async function renderPaginaPastillas() {
           <div class="med-dosis">${med.dosis}${med.indicaciones ? ' · ' + med.indicaciones : ''}</div>
           <span class="med-cat" style="background:${color}22;color:${color}">${med.categoria || 'Medicamento'}</span>
           ${med.notas ? `<div class="med-notas">${med.notas}</div>` : ''}
-          ${horariosMed ? `<div class="med-horarios">🕐 ${horariosMed}</div>` : '<div class="med-horarios" style="color:var(--danger)">⚠️ Sin horario asignado</div>'}
+          ${horariosMed ? `<div class="med-horarios">🕐 ${horariosMed}${tomasMed[0]?.dias_semana?.length > 0 ? ` · <span style="opacity:0.75">${etiquetaDias(tomasMed[0].dias_semana)}</span>` : ''}</div>` : '<div class="med-horarios" style="color:var(--danger)">⚠️ Sin horario asignado</div>'}
         </div>
         <div class="med-actions">
           <button class="btn-icon" onclick="abrirEditarMed(${med.id})" title="Editar">✏️</button>
@@ -501,8 +640,15 @@ window.restablecerDatosReales = async function() {
   await seedDemoData();
   await cargarDatos();
   await renderPaginaPastillas();
+  guardarEnServidor();
   mostrarToast('✅ Medicamentos restablecidos a la configuración original');
 };
+
+function etiquetaDias(dias_semana) {
+  if (!dias_semana || dias_semana.length === 0) return '';
+  const nombres = ['', 'L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  return dias_semana.slice().sort((a,b) => a-b).map(d => nombres[d]).join(' ');
+}
 
 // ===== PÁGINA ALARMAS =====
 async function renderPaginaAlarmas() {
@@ -550,6 +696,9 @@ async function renderPaginaAlarmas() {
       <button onclick="probarNotificacion()" style="width:100%;padding:12px;margin-bottom:${esPWA ? '12' : '8'}px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
         🔔 Probar notificación ahora
       </button>
+      <button onclick="repararNotificaciones()" style="width:100%;padding:12px;margin-bottom:12px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+        🔧 Reparar notificaciones de este iPhone
+      </button>
       ${!esPWA ? `
       <div style="background:#2a1f00;border:1px solid #f59e0b55;border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px">
         <span style="font-size:18px;flex-shrink:0">📱</span>
@@ -591,7 +740,10 @@ async function renderPaginaAlarmas() {
           <div class="toggle ${activas.length > 0 ? 'on' : ''}" onclick="toggleHora('${hora}')"></div>
         </div>
         <div class="alarma-meds-list">
-          ${items.map(t => `<span class="alarma-med-chip" style="background:${colorCategoria(t.med.categoria)}22;color:${colorCategoria(t.med.categoria)}">${iconoCategoria(t.med.categoria)} ${t.med.nombre}</span>`).join('')}
+          ${items.map(t => {
+            const etDias = etiquetaDias(t.dias_semana);
+            return `<span class="alarma-med-chip" style="background:${colorCategoria(t.med.categoria)}22;color:${colorCategoria(t.med.categoria)}">${iconoCategoria(t.med.categoria)} ${t.med.nombre}${etDias ? `<span style="margin-left:5px;font-size:10px;opacity:0.8">${etDias}</span>` : ''}</span>`;
+          }).join('')}
         </div>
       </div>
     `;
@@ -620,7 +772,7 @@ window.cambiarHoraSlot = async function(horaOriginal, horaNueva, inputEl) {
   await cargarDatos();
   await renderPaginaAlarmas();
   await programarAlarmasHoy(state.tomas, state.medicamentos);
-  sincronizarHorariosServidor(state.tomas, state.medicamentos);
+  guardarEnServidor();
 };
 
 window.toggleHora = async function(hora) {
@@ -633,7 +785,7 @@ window.toggleHora = async function(hora) {
   mostrarToast(nuevaActiva ? '🔔 Toma activada' : '🔕 Toma desactivada');
   await cargarDatos();
   await renderPaginaAlarmas();
-  sincronizarHorariosServidor(state.tomas, state.medicamentos);
+  guardarEnServidor();
 };
 
 window.probarNotificacion = async function() {
@@ -642,6 +794,13 @@ window.probarNotificacion = async function() {
     return;
   }
   mostrarToast('🔔 Enviando prueba...');
+
+  const suscripcion = await iniciarFCM();
+  if (!suscripcion) {
+    mostrarToast('No se pudo registrar este iPhone en el servidor');
+    return;
+  }
+
   // Intentar via FCM (llega aunque la app esté cerrada)
   const okFCM = await probarPushFCM();
   if (okFCM) {
@@ -671,10 +830,30 @@ window.probarNotificacion = async function() {
   mostrarToast('🔔 Notificación local — cierra la app para probar FCM');
 };
 
+window.repararNotificaciones = async function() {
+  if (!tienePermiso()) {
+    mostrarToast('Activa primero las notificaciones');
+    return;
+  }
+
+  mostrarToast('Reparando registro del iPhone...');
+  const suscripcion = await resetearWebPush();
+  if (!suscripcion) {
+    mostrarToast('No se pudo reparar el registro');
+    return;
+  }
+
+  const estado = await diagnosticoWebPush();
+  const detalle = estado.endpoint ? ` (${estado.endpoint})` : '';
+  mostrarToast(`iPhone registrado de nuevo${detalle}`);
+  setTimeout(() => probarNotificacion(), 700);
+};
+
 // ===== MODAL MEDICAMENTO =====
 window.abrirNuevoMed = function() {
   state.editandoMed = null;
   state.horariosNuevoMed = [];
+  state.diasNuevoMed = [];
   abrirModalMed();
 };
 
@@ -683,6 +862,7 @@ window.abrirEditarMed = function(id) {
   const med = state.medicamentos.find(m => m.id === id);
   const tomasMed = state.tomas.filter(t => t.medicamento_id === id && t.activa);
   state.horariosNuevoMed = tomasMed.map(t => ({ id: t.id, hora: t.hora }));
+  state.diasNuevoMed = tomasMed.length > 0 && tomasMed[0].dias_semana ? [...tomasMed[0].dias_semana] : [];
   abrirModalMed(med);
 };
 
@@ -742,6 +922,14 @@ function abrirModalMed(med = null) {
         </div>
       </div>
 
+      <div class="form-group">
+        <label class="form-label">Días de toma</label>
+        <div id="dias-selector" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          <button type="button" id="dias-todos" onclick="toggleTodosDias()" style="border-radius:20px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid var(--primary);background:var(--primary);color:#000">Todos</button>
+          ${['L','M','X','J','V','S','D'].map((d,i) => `<button type="button" class="dia-btn" data-dia="${i+1}" onclick="toggleDia(${i+1})" style="border-radius:20px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid var(--border);background:transparent;color:var(--text3)">${d}</button>`).join('')}
+        </div>
+      </div>
+
       <div class="modal-btns">
         <button class="btn-secondary" onclick="cerrarModal()">Cancelar</button>
         <button class="btn-primary" onclick="guardarMed()">
@@ -752,6 +940,7 @@ function abrirModalMed(med = null) {
   `;
 
   overlay.classList.add('visible');
+  setTimeout(() => sincronizarBotonesDias(), 50);
 }
 
 function renderHorariosTags() {
@@ -762,6 +951,34 @@ function renderHorariosTags() {
     </span>
   `).join('');
 }
+
+function sincronizarBotonesDias() {
+  const todosDias = state.diasNuevoMed.length === 0;
+  const btnTodos = document.getElementById('dias-todos');
+  if (!btnTodos) return;
+  btnTodos.style.background = todosDias ? 'var(--primary)' : 'transparent';
+  btnTodos.style.color = todosDias ? '#000' : 'var(--text3)';
+  btnTodos.style.borderColor = todosDias ? 'var(--primary)' : 'var(--border)';
+  document.querySelectorAll('.dia-btn').forEach(btn => {
+    const dia = parseInt(btn.dataset.dia);
+    const activo = state.diasNuevoMed.includes(dia);
+    btn.style.background = activo ? 'var(--primary)' : 'transparent';
+    btn.style.color = activo ? '#000' : 'var(--text3)';
+    btn.style.borderColor = activo ? 'var(--primary)' : 'var(--border)';
+  });
+}
+
+window.toggleTodosDias = function() {
+  state.diasNuevoMed = [];
+  sincronizarBotonesDias();
+};
+
+window.toggleDia = function(dia) {
+  const idx = state.diasNuevoMed.indexOf(dia);
+  if (idx === -1) state.diasNuevoMed.push(dia);
+  else state.diasNuevoMed.splice(idx, 1);
+  sincronizarBotonesDias();
+};
 
 window.seleccionarColor = function(color) {
   document.querySelectorAll('.color-opt').forEach(el => {
@@ -815,13 +1032,14 @@ window.guardarMed = async function() {
   // Añadir tomas nuevas
   for (const h of state.horariosNuevoMed) {
     if (!h.id) { // solo si es nueva
-      await addToma({ medicamento_id: medData.id, hora: h.hora, activa: true });
+      await addToma({ medicamento_id: medData.id, hora: h.hora, activa: true, dias_semana: state.diasNuevoMed.length > 0 ? [...state.diasNuevoMed] : null });
     }
   }
 
   cerrarModal();
   await cargarDatos();
   await renderPaginaPastillas();
+  guardarEnServidor();
   mostrarToast(`✓ ${nombre} guardado`);
 };
 
@@ -847,6 +1065,7 @@ window.borrarMed = async function(id) {
   cerrarModal();
   await cargarDatos();
   await renderPaginaPastillas();
+  guardarEnServidor();
   mostrarToast(`🗑️ ${med?.nombre} eliminado`);
 };
 
@@ -863,6 +1082,199 @@ function setupModalOverlay() {
     });
   }
 }
+
+// ===== PÁGINA INFO =====
+function esc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function cargarInfo() {
+  try {
+    const res = await fetch('/api/push?info=1');
+    if (!res.ok) return;
+    const { info } = await res.json();
+    if (info) state.infoData = { comidas: info.comidas || [], habitos: info.habitos || [] };
+  } catch {}
+}
+
+async function guardarInfo() {
+  try {
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-info', ...state.infoData }),
+    });
+    mostrarIndicadorSync('✅ Sincronizado');
+  } catch {}
+}
+
+async function renderPaginaInfo() {
+  const page = document.getElementById('page-info');
+
+  let html = `
+    <div class="app-header">
+      <div class="header-left">
+        <div class="greeting">Ayuda</div>
+        <div class="title">Guía 📖</div>
+        <div class="subtitle">Cómo usar la app</div>
+      </div>
+    </div>
+    <div class="content">
+    <div style="background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;margin-bottom:32px">
+  `;
+  const pasos = [
+    ['💊', 'Marcar pastillas', 'En "Hoy" toca cada pastilla para marcarla como tomada. O toca el botón de abajo para marcar toda una toma de golpe.'],
+    ['🔔', 'Activar alarmas', 'En "Alarmas" debe aparecer ✅ Alarmas activadas. Si no, toca el banner. Las alarmas llegan aunque el iPhone esté bloqueado.'],
+    ['⚙️', 'Cambiar horarios', 'En "Alarmas" toca la hora de cada toma para cambiarla. Se guarda y sincroniza a todos los móviles automáticamente.'],
+    ['➕', 'Añadir pastilla nueva', 'En "Pastillas" toca el botón + abajo a la derecha. Rellena nombre, dosis y añade las horas.'],
+    ['✏️', 'Editar o borrar pastilla', 'En "Pastillas" usa los botones ✏️ (editar) y 🗑️ (borrar) que hay a la derecha de cada medicamento.'],
+    ['🔄', 'Volver al horario original', 'En "Pastillas" baja al final y toca "🔄 Restablecer medicamentos originales". Vuelve al horario completo del trasplante del hospital.'],
+    ['📱', 'Sincronización automática', 'Los cambios en cualquier móvil se sincronizan solos en todos los demás en menos de 2 minutos.'],
+    ['🥗', 'Comidas y hábitos', 'En la pestaña "Cuidados" puedes añadir comidas prohibidas y hábitos importantes para recordar.'],
+    ['🔧', 'Las alarmas no llegan', 'Ve a "Alarmas" y toca "🔧 Reparar notificaciones de este iPhone". Luego prueba con "🔔 Probar notificación ahora".'],
+  ];
+  pasos.forEach(([icon, titulo, desc]) => {
+    html += `<div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <span style="font-size:18px">${icon}</span>
+        <span style="font-weight:700;font-size:14px;color:var(--text)">${titulo}</span>
+      </div>
+      <p style="font-size:13px;color:var(--text2);margin:0;padding-left:28px;line-height:1.5">${desc}</p>
+    </div>`;
+  });
+  html += `</div></div>`;
+  page.innerHTML = html;
+}
+
+async function renderPaginaCuidados() {
+  const page = document.getElementById('page-cuidados');
+  await cargarInfo();
+  const { comidas, habitos } = state.infoData;
+
+  let html = `
+    <div class="app-header">
+      <div class="header-left">
+        <div class="greeting">Trasplante de pulmón</div>
+        <div class="title">Cuidados 🥗</div>
+        <div class="subtitle">Comidas y hábitos del paciente</div>
+      </div>
+    </div>
+    <div class="content">
+  `;
+
+  // ---- COMIDAS PROHIBIDAS ----
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <div class="section-label" style="margin:0">🚫 Comidas prohibidas</div>
+    <button onclick="anadirItem('comidas')" style="background:var(--primary);color:#000;border:none;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer">+ Añadir</button>
+  </div>
+  <div style="background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;margin-bottom:16px">`;
+  if (comidas.length === 0) {
+    html += `<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">Sin comidas registradas — toca + para añadir</div>`;
+  } else {
+    comidas.forEach((item, i) => {
+      html += `<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:16px">🚫</span>
+        <span style="flex:1;font-size:14px;color:var(--text)">${esc(item)}</span>
+        <button onclick="editarItem('comidas',${i})" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px">✏️</button>
+        <button onclick="borrarItem('comidas',${i})" style="background:none;border:none;color:var(--danger);font-size:18px;cursor:pointer;padding:0 4px">×</button>
+      </div>`;
+    });
+  }
+  html += `</div>`;
+
+  // ---- HÁBITOS ----
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <div class="section-label" style="margin:0">✅ Hábitos y cuidados</div>
+    <button onclick="anadirItem('habitos')" style="background:var(--primary);color:#000;border:none;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer">+ Añadir</button>
+  </div>
+  <div style="background:var(--bg2);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;margin-bottom:32px">`;
+  if (habitos.length === 0) {
+    html += `<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px">Sin hábitos registrados — toca + para añadir</div>`;
+  } else {
+    habitos.forEach((item, i) => {
+      html += `<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:16px">✅</span>
+        <span style="flex:1;font-size:14px;color:var(--text)">${esc(item)}</span>
+        <button onclick="editarItem('habitos',${i})" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px">✏️</button>
+        <button onclick="borrarItem('habitos',${i})" style="background:none;border:none;color:var(--danger);font-size:18px;cursor:pointer;padding:0 4px">×</button>
+      </div>`;
+    });
+  }
+  html += `</div></div>`;
+
+  page.innerHTML = html;
+}
+
+window.anadirItem = function(tipo) {
+  const overlay = document.getElementById('modal-overlay');
+  document.getElementById('modal-content').innerHTML = `
+    <div class="modal">
+      <div class="modal-title">${tipo === 'comidas' ? '🚫 Nueva comida prohibida' : '✅ Nuevo hábito'}</div>
+      <div class="form-group">
+        <label class="form-label">${tipo === 'comidas' ? 'Describe la comida prohibida' : 'Describe el hábito o cuidado'}</label>
+        <input class="form-input" id="item-texto" placeholder="${tipo === 'comidas' ? 'Ej: Pomelo — interacciona con Prograf' : 'Ej: Evitar sol directo en cicatrices'}">
+      </div>
+      <div class="modal-btns">
+        <button class="btn-secondary" onclick="cerrarModal()">Cancelar</button>
+        <button class="btn-primary" onclick="confirmarAnadirItem('${tipo}')">Añadir</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+  setTimeout(() => document.getElementById('item-texto')?.focus(), 100);
+};
+
+window.confirmarAnadirItem = async function(tipo) {
+  const el = document.getElementById('item-texto');
+  const texto = el?.value.trim();
+  if (!texto) { mostrarToast('Escribe algo primero'); return; }
+  state.infoData[tipo].push(texto);
+  cerrarModal();
+  await guardarInfo();
+  await renderPaginaInfo();
+  mostrarToast('✓ Añadido');
+};
+
+window.editarItem = function(tipo, indice) {
+  const textoActual = state.infoData[tipo][indice];
+  const overlay = document.getElementById('modal-overlay');
+  document.getElementById('modal-content').innerHTML = `
+    <div class="modal">
+      <div class="modal-title">${tipo === 'comidas' ? '🚫 Editar comida prohibida' : '✅ Editar hábito'}</div>
+      <div class="form-group">
+        <label class="form-label">${tipo === 'comidas' ? 'Describe la comida prohibida' : 'Describe el hábito o cuidado'}</label>
+        <input class="form-input" id="item-texto" value="${esc(textoActual)}">
+      </div>
+      <div class="modal-btns">
+        <button class="btn-secondary" onclick="cerrarModal()">Cancelar</button>
+        <button class="btn-primary" onclick="confirmarEditarItem('${tipo}',${indice})">Guardar</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('visible');
+  setTimeout(() => {
+    const input = document.getElementById('item-texto');
+    if (input) { input.focus(); input.select(); }
+  }, 100);
+};
+
+window.confirmarEditarItem = async function(tipo, indice) {
+  const el = document.getElementById('item-texto');
+  const texto = el?.value.trim();
+  if (!texto) { mostrarToast('Escribe algo primero'); return; }
+  state.infoData[tipo][indice] = texto;
+  cerrarModal();
+  await guardarInfo();
+  await renderPaginaCuidados();
+  mostrarToast('✓ Guardado');
+};
+
+window.borrarItem = async function(tipo, indice) {
+  state.infoData[tipo].splice(indice, 1);
+  await guardarInfo();
+  await renderPaginaCuidados();
+  mostrarToast('🗑️ Eliminado');
+};
 
 // ===== TOAST =====
 let toastTimer = null;
