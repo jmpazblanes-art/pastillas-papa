@@ -102,8 +102,12 @@ export default async function handler(req, res) {
       const horariosUsuario = horariosDoc.exists ? (horariosDoc.data()?.horarios || {}) : {};
       const disparadas = horariosDoc.exists ? (horariosDoc.data()?.disparadas || {}) : {};
 
+      // Si el usuario ha sincronizado sus horarios, usar SOLO los suyos (sin fallback a defaults)
+      // Si nunca ha sincronizado, usar los defaults
+      const horariosFinal = horariosDoc.exists ? horariosUsuario : HORARIOS_DEFAULT;
+
       for (const h of ventana) {
-        const alarma = horariosUsuario[h] || HORARIOS_DEFAULT[h] || null;
+        const alarma = horariosFinal[h] || null;
         if (!alarma) continue;
         // Evitar mandar la misma alarma dos veces en la misma ventana
         const hoy = new Date().toISOString().slice(0, 10);
@@ -176,9 +180,11 @@ export default async function handler(req, res) {
       const horariosUsuario = horariosDoc.exists ? (horariosDoc.data()?.horarios || {}) : {};
       const disparadas = horariosDoc.exists ? (horariosDoc.data()?.disparadas || {}) : {};
 
+      const horariosFinal = horariosDoc.exists ? horariosUsuario : HORARIOS_DEFAULT;
+
       const alarmasAEnviar = [];
       for (const h of ventana) {
-        const alarma = horariosUsuario[h] || HORARIOS_DEFAULT[h] || null;
+        const alarma = horariosFinal[h] || null;
         if (!alarma) continue;
         const hoy = new Date().toISOString().slice(0, 10);
         const claveDisparo = `${hoy}_${h}`;

@@ -633,6 +633,7 @@ window.toggleHora = async function(hora) {
   mostrarToast(nuevaActiva ? '🔔 Toma activada' : '🔕 Toma desactivada');
   await cargarDatos();
   await renderPaginaAlarmas();
+  sincronizarHorariosServidor(state.tomas, state.medicamentos);
 };
 
 window.probarNotificacion = async function() {
