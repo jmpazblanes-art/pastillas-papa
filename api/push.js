@@ -71,32 +71,33 @@ function horasEnVentana(ventanaMinutos = 5) {
 function buildAlarmasDesdeSchedule(ventana, scheduleData, disparadas) {
   const alarmasAEnviar = [];
   const { medicamentos = [], tomas = [] } = scheduleData || {};
+  // Si la app ha sincronizado un schedule real, es la ÚNICA fuente de verdad.
+  // Nunca caer a HORARIOS_DEFAULT por hora: provocaba alarmas fantasma
+  // (p.ej. 19:00) cuando el usuario quitaba o cambiaba esa toma.
+  const haySchedule = medicamentos.length > 0 && tomas.length > 0;
 
   for (const h of ventana) {
     const hoy = new Date().toISOString().slice(0, 10);
     const claveDisparo = `${hoy}_${h}`;
     if (disparadas[claveDisparo]) continue;
 
-    // Intentar construir desde el schedule real
-    if (medicamentos.length > 0 && tomas.length > 0) {
+    if (haySchedule) {
       const tomasHora = tomas.filter(t => t.hora === h && t.activa !== false);
-      if (tomasHora.length > 0) {
-        const meds = tomasHora
-          .map(t => medicamentos.find(m => m.id === t.medicamento_id))
-          .filter(Boolean);
-        if (meds.length > 0) {
-          const esAyunas = meds.some(m => m.indicaciones && m.indicaciones.toLowerCase().includes('ayunas'));
-          const titulo = esAyunas ? `⚠️ Pastillas ${h} — EN AYUNAS` : `💊 Pastillas ${h}`;
-          const partes = meds.map(m => `${m.nombre} ${m.dosis}`);
-          const instruccion = esAyunas ? ' · Sin haber comido · Esperar 1h' : '';
-          const cuerpo = partes.join(' · ') + instruccion;
-          alarmasAEnviar.push({ titulo, cuerpo, claveDisparo });
-          continue;
-        }
-      }
+      if (tomasHora.length === 0) continue;
+      const meds = tomasHora
+        .map(t => medicamentos.find(m => m.id === t.medicamento_id))
+        .filter(Boolean);
+      if (meds.length === 0) continue;
+      const esAyunas = meds.some(m => m.indicaciones && m.indicaciones.toLowerCase().includes('ayunas'));
+      const titulo = esAyunas ? `⚠️ Pastillas ${h} — EN AYUNAS` : `💊 Pastillas ${h}`;
+      const partes = meds.map(m => `${m.nombre} ${m.dosis}`);
+      const instruccion = esAyunas ? ' · Sin haber comido · Esperar 1h' : '';
+      const cuerpo = partes.join(' · ') + instruccion;
+      alarmasAEnviar.push({ titulo, cuerpo, claveDisparo });
+      continue;
     }
 
-    // Fallback a HORARIOS_DEFAULT
+    // Sin schedule sincronizado: red de seguridad con horarios por defecto
     const alarmaDefault = HORARIOS_DEFAULT[h];
     if (alarmaDefault) alarmasAEnviar.push({ ...alarmaDefault, claveDisparo });
   }
