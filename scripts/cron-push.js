@@ -14,7 +14,6 @@ const HORARIOS_DEFAULT = {
   '07:00': { titulo: '⚠️ Prograf + CellCept — EN AYUNAS', cuerpo: 'Prograf 6mg + CellCept 2x500mg · Sin haber comido nada · Esperar 1h antes de desayunar' },
   '08:00': { titulo: '💊 Prednisona + pastillas desayuno', cuerpo: 'Prednisona 40mg · Calcio 1250 · Magnesio 53mg · Amlodipino 5mg · Bisoprolol 2.5mg · Omeprazol 20mg' },
   '14:00': { titulo: '💊 Pastillas de la comida', cuerpo: 'Zitromax 250mg · Valganciclovir 900mg · Septrin Forte 160/800mg' },
-  '19:00': { titulo: '⚠️ Prograf + CellCept — EN AYUNAS', cuerpo: 'Prograf 6mg + CellCept 2x500mg · Sin haber comido nada · Esperar 1h antes de cenar' },
   '22:00': { titulo: '💊 Pastillas antes de dormir', cuerpo: 'Magnesio 53mg · Calcio 1250 · Amlodipino 5mg · Bisoprolol 2.5mg · Omeprazol 20mg' },
 };
 
@@ -67,6 +66,38 @@ function horasEnVentana(ventanaMinutos = WINDOW_MINUTES) {
   return [...new Set(horas)];
 }
 
+// Construye el mapa hora -> { titulo, cuerpo } a partir del schedule REAL que
+// la app sincroniza en Firestore (config/schedule). Es la fuente de verdad:
+// si el usuario quita o cambia una toma, las alarmas dejan de salir a esa hora.
+// Devuelve null si no hay schedule utilizable (para poder caer al fallback).
+function horariosDesdeSchedule(scheduleData) {
+  const { medicamentos = [], tomas = [] } = scheduleData || {};
+  if (medicamentos.length === 0 || tomas.length === 0) return null;
+
+  const grupos = {};
+  for (const toma of tomas) {
+    if (toma.activa === false) continue;
+    const med = medicamentos.find((m) => m.id === toma.medicamento_id);
+    if (!med) continue;
+    if (!grupos[toma.hora]) grupos[toma.hora] = [];
+    grupos[toma.hora].push(med);
+  }
+
+  const horarios = {};
+  for (const [hora, meds] of Object.entries(grupos)) {
+    if (meds.length === 0) continue;
+    const esAyunas = meds.some(
+      (m) => m.indicaciones && m.indicaciones.toLowerCase().includes('ayunas')
+    );
+    const titulo = esAyunas ? `⚠️ Pastillas ${hora} — EN AYUNAS` : `💊 Pastillas ${hora}`;
+    const partes = meds.map((m) => `${m.nombre} ${m.dosis || ''}`.trim());
+    const instruccion = esAyunas ? ' · Sin haber comido · Esperar 1h' : '';
+    horarios[hora] = { titulo, cuerpo: partes.join(' · ') + instruccion };
+  }
+
+  return Object.keys(horarios).length > 0 ? horarios : null;
+}
+
 async function enviarPush(subscription, alarma) {
   webpush.setVapidDetails(VAPID_EMAIL, requireEnv('VAPID_PUBLIC_KEY'), requireEnv('VAPID_PRIVATE_KEY'));
   const endpointHost = subscription?.endpoint ? new URL(subscription.endpoint).host : 'endpoint-desconocido';
@@ -112,10 +143,37 @@ async function main() {
   const db = getDB();
   const ahora = horaEspana();
   const hoy = fechaEspana();
-  const horariosDoc = await db.collection('config').doc('horarios').get();
+  const [horariosDoc, scheduleDoc] = await Promise.all([
+    db.collection('config').doc('horarios').get(),
+    db.collection('config').doc('schedule').get(),
+  ]);
   const horariosData = horariosDoc.exists ? horariosDoc.data() : {};
-  const horariosUsuario = FIXED_ONLY ? {} : (horariosData?.horarios || {});
+  const scheduleData = scheduleDoc.exists ? scheduleDoc.data() : null;
   const disparadas = horariosData?.disparadas || {};
+
+  // Fuente de verdad: el schedule real que la app sincroniza (config/schedule).
+  // Si no hay schedule, se usan los horarios sincronizados antiguos y, como
+  // última red de seguridad para no perder ninguna toma, HORARIOS_DEFAULT.
+  // FIXED_ONLY fuerza únicamente los horarios por defecto (modo manual).
+  const horariosSchedule = horariosDesdeSchedule(scheduleData);
+  const horariosSync = Object.keys(horariosData?.horarios || {}).length
+    ? horariosData.horarios
+    : null;
+  let fuente;
+  let horariosEfectivos;
+  if (FIXED_ONLY) {
+    fuente = 'horarios por defecto (FIXED_ONLY)';
+    horariosEfectivos = HORARIOS_DEFAULT;
+  } else if (horariosSchedule) {
+    fuente = 'schedule real de la app';
+    horariosEfectivos = horariosSchedule;
+  } else if (horariosSync) {
+    fuente = 'horarios sincronizados';
+    horariosEfectivos = horariosSync;
+  } else {
+    fuente = 'horarios por defecto (sin schedule)';
+    horariosEfectivos = HORARIOS_DEFAULT;
+  }
 
   const alarmasAEnviar = [];
 
@@ -127,7 +185,7 @@ async function main() {
     });
   } else {
     for (const hora of horasEnVentana()) {
-      const alarma = horariosUsuario[hora] || HORARIOS_DEFAULT[hora] || null;
+      const alarma = horariosEfectivos[hora];
       if (!alarma) continue;
 
       const claveDisparo = `${hoy}_${hora}`;
@@ -139,7 +197,7 @@ async function main() {
 
   console.log(`Hora España: ${ahora}`);
   console.log(`Minuto revisado: ${horasEnVentana().join(', ')}`);
-  console.log(`Modo: ${FIXED_ONLY ? '4 alarmas fijas' : 'horarios sincronizados desde app'}`);
+  console.log(`Fuente de horarios: ${fuente} (${Object.keys(horariosEfectivos).join(', ')})`);
   console.log(`Alarmas candidatas: ${alarmasAEnviar.length}`);
 
   if (alarmasAEnviar.length === 0) {

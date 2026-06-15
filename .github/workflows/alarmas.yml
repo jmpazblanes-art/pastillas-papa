@@ -1,9 +1,10 @@
-name: Disparar alarmas fijas
+name: Disparar alarmas de pastillas
 
 on:
   schedule:
-    # Minuto exacto de las 4 tomas fijas en hora España.
-    # GitHub usa UTC; se cubren verano e invierno y el script filtra por hora real en Madrid.
+    # Horas (UTC) que cubren todas las tomas reales en hora España.
+    # El script lee el schedule real sincronizado por la app y filtra por la
+    # hora real en Madrid; se cubren verano e invierno.
     - cron: '0 5,6,7,8,12,17,18,19,20 * * *'
   workflow_dispatch:
     inputs:
@@ -38,7 +39,6 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           FORCE_TEST: ${{ github.event.inputs.force || 'false' }}
-          FIXED_ONLY: 'true'
           WINDOW_MINUTES: '90'
         run: node scripts/cron-push.js
 
