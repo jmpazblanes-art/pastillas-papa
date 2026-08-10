@@ -1,0 +1,37 @@
+name: Mantener vivas las alarmas
+
+# POR QUÉ EXISTE ESTO
+#
+# GitHub desactiva SOLO los workflows programados (schedule) cuando un repo
+# lleva 60 días sin actividad, y avisa a los 55. El 07/08/2026 llegó ese aviso:
+# el último commit era del 15-jun (56 días) y a las alarmas de las pastillas de
+# papá les quedaban 4 días para apagarse en silencio.
+#
+# Este repo es estable — no se toca porque funciona, no porque esté abandonado.
+# Justo el perfil que GitHub apaga.
+#
+# Este workflow hace un commit vacío el día 1 de cada mes. Eso reinicia el
+# contador de 60 días, así que las alarmas no se apagan nunca por inactividad.
+
+on:
+  schedule:
+    - cron: '0 4 1 * *'      # día 1 de cada mes, 04:00 UTC
+  workflow_dispatch:          # y a mano cuando haga falta
+
+permissions:
+  contents: write
+
+jobs:
+  latido:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Commit de latido
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          date -u '+%Y-%m-%d' > .ultimo-latido
+          git add .ultimo-latido
+          git commit -m "chore: latido mensual — que GitHub no apague las alarmas de papá" || exit 0
+          git push
